@@ -6,7 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from core.context import get_request_id
+from app.core.context import get_request_id
 
 logger = logging.getLogger("middleware.exceptions")
 

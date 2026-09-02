@@ -1,81 +1,72 @@
-
-from database.schemas import User
-from validation.models import UserBase
-from sqlalchemy.orm import Session
-from passlib.context import CryptContext
-from validation.models import TokenResponse
 from fastapi import HTTPException, status
-from services.token_service import create_access_token, create_refresh_token, save_refresh_to_db
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
-pwd_context = CryptContext(schemes=["brcypt"], deprecated="auto")
+from app.auth.passwords import DUMMY_HASH, hash_password, verify_password
+from app.database.schemas import User
+from app.services.token_service import (
+    create_access_token,
+    create_refresh_token,
+    save_refresh_to_db,
+)
+from app.validation.models import SigninRequest, SignupRequest
+
+# One message for both "no such user" and "wrong password". Distinguishing
+# them tells an attacker which emails have accounts.
+INVALID_CREDENTIALS = "Invalid email or password"
 
 
-def email_exists(email: str, db: Session):
+def email_exists(email: str, db: Session) -> bool:
     return db.query(User).filter(User.email == email).first() is not None
 
-def hash_password(password :str) -> str:
-    return pwd_context.hash(password)
 
+def signin_service(data: SigninRequest, db: Session) -> tuple[str, str]:
+    """Returns (access_token, refresh_token)."""
+    user = db.query(User).filter(User.email == data.email).first()
 
-def signin_service(data :UserBase, db : Session) -> TokenResponse:
-    try:
-        user = db.query(User).filter(User.email == data.email).first()
+    # Always run a real scrypt derivation, even when the user does not exist,
+    # so both branches take the same wall-clock time.
+    stored = user.password if user is not None else DUMMY_HASH
+    password_ok = verify_password(data.password, stored)
 
-        if not user:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                                detail = "Invalid email")
-
-        if not pwd_context.verify(data.password, User.password):
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid email or password",
-            )
-
-        access_token = create_access_token(user.id)
-        refresh_token = create_refresh_token(user.id)
-
-        save_refresh_to_db(user.id, refresh_token, db)
-
-        return TokenResponse(
-            access_token = access_token,
-            refresh_token = refresh_token
+    if user is None or not password_ok:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=INVALID_CREDENTIALS,
         )
-    
-    except Exception:
-        db.rollback()
-        raise
+
+    access_token = create_access_token(user.id)
+    refresh_token = create_refresh_token()
+    save_refresh_to_db(user.id, refresh_token, db)
+    return access_token, refresh_token
 
 
-def signup_service(data :UserBase, db : Session):
+def signup_service(data: SignupRequest, db: Session) -> tuple[str, str]:
+    """Returns (access_token, refresh_token)."""
+    if email_exists(data.email, db):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already registered",
+        )
+
+    user = User(
+        name=data.name,
+        email=data.email,
+        password=hash_password(data.password),
+    )
+    db.add(user)
     try:
-        if email_exists(data.email, db):
-                raise HTTPException(
-                        status_code=status.HTTP_400_BAD_REQUEST,
-                        detail="Email already exists",
-                )
-        hashed_password = hash_password(data.password)
-           
-        new_user = User(
-                    name = data.name,
-                    email = data.email,
-                    password = hashed_password,
-                    Bio = data.Bio
-                )
-
-        db.add(new_user)
         db.commit()
-        db.refresh(new_user)
-
-        access_token = create_access_token(new_user.id)
-        refresh_token = create_refresh_token(new_user.id)
-        save_refresh_to_db(new_user.id, refresh_token, db)
-                   
-           
-        return TokenResponse(
-             access_token=access_token,
-             refresh_token=refresh_token
-        )
-
-    except Exception:
+    except IntegrityError:
+        # Lost the race against a concurrent signup with the same email.
         db.rollback()
-        raise
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already registered",
+        ) from None
+    db.refresh(user)
+
+    access_token = create_access_token(user.id)
+    refresh_token = create_refresh_token()
+    save_refresh_to_db(user.id, refresh_token, db)
+    return access_token, refresh_token

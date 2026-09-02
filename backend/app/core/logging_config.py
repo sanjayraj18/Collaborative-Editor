@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any, Dict
 import logging
-from core.context import get_request_id
+from app.core.context import get_request_id
 import json
 import sys
 

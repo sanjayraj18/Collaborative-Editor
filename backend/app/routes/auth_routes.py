@@ -1,23 +1,92 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Cookie, Depends, Response, status
 from sqlalchemy.orm import Session
-from app.database import get_db
-from validation.models import UserBase
-from services.auth_service import signin_service, signup_service
+
+from app.config import get_settings
+from app.database.database import get_db
+from app.services.auth_service import signin_service, signup_service
+from app.services.token_service import (
+    create_access_token,
+    revoke_refresh_token,
+    validate_refresh_in_db,
+)
+from app.validation.models import AccessTokenResponse, SigninRequest, SignupRequest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+settings = get_settings()
 
-@router.post('/signin',status_code=status.HTTP_200_OK)
-async def signin(data : UserBase,db :Session = Depends(get_db)):
-    return signin_service(data, db)
+REFRESH_COOKIE = "refresh_token"
+# Scoped so the browser only ships it to /auth/*, never to every request.
+REFRESH_COOKIE_PATH = "/auth"
 
-@router.post('/signup',status_code=status.HTTP_201_CREATED)
-async def signup(data : UserBase,db :Session = Depends(get_db)):
-    return signup_service(data, db)
 
-@router.post('/signout',status_code=status.HTTP_200_OK)
-async def signout(data : UserBase,db :Session = Depends(get_db)):
-    return {"message": "Sign out endpoint"}
+def _set_refresh_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=REFRESH_COOKIE,
+        value=token,
+        httponly=True,                 # unreachable from JavaScript -> XSS-safe
+        secure=not settings.is_dev,    # HTTPS only outside dev
+        samesite="strict",
+        path=REFRESH_COOKIE_PATH,
+        max_age=settings.refresh_token_expire_days * 24 * 3600,
+    )
 
-@router.post('/refresh',status_code=status.HTTP_200_OK)    
-async def refresh(db :Session = Depends(get_db)):
-    return {"message": "Refresh token endpoint"}
+
+# NOTE: these are `def`, not `async def`. SQLAlchemy's sync session blocks;
+# FastAPI runs sync routes in a threadpool so the event loop stays free for
+# WebSockets. An `async def` here would stall every connected socket.
+
+
+@router.post(
+    "/signup",
+    status_code=status.HTTP_201_CREATED,
+    response_model=AccessTokenResponse,
+)
+def signup(
+    data: SignupRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> AccessTokenResponse:
+    access_token, refresh_token = signup_service(data, db)
+    _set_refresh_cookie(response, refresh_token)
+    return AccessTokenResponse(access_token=access_token)
+
+
+@router.post(
+    "/signin",
+    status_code=status.HTTP_200_OK,
+    response_model=AccessTokenResponse,
+)
+def signin(
+    data: SigninRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> AccessTokenResponse:
+    access_token, refresh_token = signin_service(data, db)
+    _set_refresh_cookie(response, refresh_token)
+    return AccessTokenResponse(access_token=access_token)
+
+
+@router.post(
+    "/refresh",
+    status_code=status.HTTP_200_OK,
+    response_model=AccessTokenResponse,
+)
+def refresh(
+    refresh_token: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
+    db: Session = Depends(get_db),
+) -> AccessTokenResponse:
+    user_id = validate_refresh_in_db(refresh_token, db)
+    return AccessTokenResponse(access_token=create_access_token(user_id))
+
+
+@router.post("/signout", status_code=status.HTTP_204_NO_CONTENT)
+def signout(
+    refresh_token: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
+    db: Session = Depends(get_db),
+) -> Response:
+    revoke_refresh_token(refresh_token, db)
+    # The cookie must be cleared on the response we actually return: headers
+    # set on an injected Response are dropped when a Response is returned.
+    response = Response(status_code=status.HTTP_204_NO_CONTENT)
+    response.delete_cookie(REFRESH_COOKIE, path=REFRESH_COOKIE_PATH)
+    return response

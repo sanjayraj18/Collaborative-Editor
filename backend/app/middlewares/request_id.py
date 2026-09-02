@@ -6,7 +6,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from typing import Optional
-from core.context import set_request_id
+from app.core.context import set_request_id
 
 REQUEST_ID_HEADER = "X-Request-ID"
 

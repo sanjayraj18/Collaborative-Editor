@@ -62,17 +62,14 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                     extra={"method": method, "path": path, "duration_ms": duration_ms},
                 )
 
-@staticmethod
-def _safe_query(request : Request) -> Optional[str]:
-    
-    if not request.url.query:
-        return None
-    
-    pairs = [
-        (key, _REDACTED if key.lower() in _SENSITIVE_QUERY else value)
-        for key, value in request.query_params.multi_items()
-    ]
-    
-    return urlencode(pairs)
-       
-        
+    @staticmethod
+    def _safe_query(request: Request) -> Optional[str]:
+        if not request.url.query:
+            return None
+
+        pairs = [
+            (key, _REDACTED if key.lower() in _SENSITIVE_QUERY else value)
+            for key, value in request.query_params.multi_items()
+        ]
+
+        return urlencode(pairs)

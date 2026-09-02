@@ -1,97 +1,121 @@
+import hashlib
+import secrets
+from datetime import datetime, timedelta, timezone
+from uuid import UUID
+
+import jwt
 from fastapi import HTTPException, status
-from jose import jwt, JWTError
-from config import settings
-from datetime import timedelta, timezone, datetime
-from sqlalchemy.orm import Session 
-from database.schemas import RefreshToken
+from sqlalchemy.orm import Session
+
+from app.config import get_settings
+from app.database.schemas import RefreshToken
+
+settings = get_settings()
+
+JWT_ISSUER = "collab"
+JWT_AUDIENCE = "collab-api"
+REFRESH_TOKEN_BYTES = 32
 
 
-def create_access_token(user_id: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+def _unauthorized() -> HTTPException:
+    """One message for every failure: no oracle for the caller."""
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or expired token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
 
-    to_encode = {
-        "user_id": str(user_id),
-        "exp": int(expire.timestamp())
+
+# --- access token: a JWT, verified with no I/O at all --------------------
+
+
+def create_access_token(user_id: UUID | str) -> str:
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user_id),
+        "iss": JWT_ISSUER,
+        "aud": JWT_AUDIENCE,
+        "iat": int(now.timestamp()),
+        "exp": int(
+            (now + timedelta(minutes=settings.access_token_expire_minutes)).timestamp()
+        ),
+        "jti": secrets.token_urlsafe(16),
     }
-
-    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
-
-    return encoded_jwt
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def verify_access_token(token : str) -> str:
+def verify_access_token(token: str) -> str:
+    if not token:
+        raise _unauthorized()
     try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        user_id = payload.get("user_id")
-
-        if not user_id:
-           raise HTTPException(status_code=401, detail="Invalid token")
-        
-        return user_id
-    
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-
-def create_refresh_token(user_id: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-
-    to_encode = {
-        "user_id": str(user_id),
-        "exp": int(expire.timestamp())
-    }
-
-    encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
-
-    return encoded_jwt
-
-
-def verify_refresh_token(token: str) -> str:
-    try:
-        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-        user_id = payload.get("user_id")
-        if not user_id:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        return user_id
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-
-def save_refresh_to_db(user_id : str, refresh_token : str, db : Session) -> None:
-    try:
-        expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-
-        db_refresh_token = RefreshToken(
-            user_id = user_id,
-            token = refresh_token,
-            expires_at = expire
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            # Pinned. Never read the algorithm from the token's own header.
+            algorithms=[settings.jwt_algorithm],
+            issuer=JWT_ISSUER,
+            audience=JWT_AUDIENCE,
+            options={"require": ["exp", "iat", "sub", "iss", "aud"]},
         )
+    except jwt.PyJWTError:
+        raise _unauthorized() from None
 
-        db.add(db_refresh_token)
+    user_id = payload.get("sub")
+    if not user_id:
+        raise _unauthorized()
+    return str(user_id)
+
+
+# --- refresh token: opaque random bytes, stored hashed -------------------
+
+
+def create_refresh_token() -> str:
+    """Opaque and random. Nothing to parse, nothing to forge, nothing to leak."""
+    return secrets.token_urlsafe(REFRESH_TOKEN_BYTES)
+
+
+def hash_refresh_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def save_refresh_to_db(user_id: UUID | str, refresh_token: str, db: Session) -> None:
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        days=settings.refresh_token_expire_days
+    )
+    db.add(
+        RefreshToken(
+            user_id=user_id,
+            token_hash=hash_refresh_token(refresh_token),
+            expires_at=expires_at,
+        )
+    )
+    db.commit()
+
+
+def validate_refresh_in_db(token: str | None, db: Session) -> str:
+    if not token:
+        raise _unauthorized()
+
+    row = (
+        db.query(RefreshToken)
+        .filter(RefreshToken.token_hash == hash_refresh_token(token))
+        .first()
+    )
+    if row is None:
+        raise _unauthorized()
+
+    if row.expires_at <= datetime.now(timezone.utc):
+        db.delete(row)
         db.commit()
+        raise _unauthorized()
 
-    except Exception:
-        db.rollback()
-        raise
+    return str(row.user_id)
 
 
-def validate_refresh_in_db(token : str, db :Session) -> str:
-    user_id = verify_refresh_token(token)
-
-    db_token = db.query(RefreshToken).filter(
-        RefreshToken.token == token
-    ).first()
-
-    if not db_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token not found or revoked"
-        )
-
-    if datetime.now(timezone.utc) > db_token.expires_at:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token expired"
-        )
-
-    return user_id
+def revoke_refresh_token(token: str | None, db: Session) -> None:
+    if not token:
+        return
+    db.query(RefreshToken).filter(
+        RefreshToken.token_hash == hash_refresh_token(token)
+    ).delete()
+    db.commit()
