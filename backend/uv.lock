@@ -102,6 +102,7 @@ dependencies = [
     { name = "python-json-logger" },
     { name = "redis" },
     { name = "sqlalchemy" },
+    { name = "starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -124,6 +125,7 @@ requires-dist = [
     { name = "python-json-logger", specifier = ">=4.2.0" },
     { name = "redis", specifier = ">=8.1.0" },
     { name = "sqlalchemy", specifier = ">=2.0.52" },
+    { name = "starlette", specifier = ">=1.6.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.4" },
 ]
 
