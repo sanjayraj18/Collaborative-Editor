@@ -1,6 +1,7 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import field_validator
 from functools import lru_cache
+from pathlib import Path
 
 class Settings(BaseSettings):
     model_config =  SettingsConfigDict(
@@ -32,6 +33,9 @@ class Settings(BaseSettings):
     # --- Infra ---
     database_url: str = "postgresql://collab:collab@localhost:5432/collab"
     redis_url: str = "redis://localhost:6379/0"
+
+    class Config:
+        env_file = Path(__file__).resolve().parent.parent.parent / ".env"
 
     @field_validator("allowed_origins", mode="before")
     @classmethod
