@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, text
+from sqlalchemy import Column, DateTime, ForeignKey, String, text, CheckConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -12,6 +12,7 @@ def _utcnow() -> datetime:
 
 
 class User(Base):
+
     __tablename__ = "users"
 
     id = Column(
@@ -29,6 +30,7 @@ class User(Base):
 
 
 class RefreshToken(Base):
+
     __tablename__ = "refresh_tokens"
 
     id = Column(
@@ -47,3 +49,35 @@ class RefreshToken(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     user = relationship("User")
+
+
+class Document(Base):
+
+    __tablename__ = "documents"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
+    title = Column(String(255), nullable=False)
+    owner_id =Column(UUID(as_uuid=True), ForeignKey("users.id" , ondelete="CASCADE"), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
+
+    owner = relationship("User")
+    members = relationship("DocumentMember", back_populates="document", cascade="all, delete-orphan")
+
+
+class DocumentMember(Base):
+
+    __tablename__ = "document_members"
+
+    document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id" , ondelete="CASCADE"), primary_key=True, index=True)
+    role = Column(String(16), nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+    __table_args__ = ( CheckConstraint( "role in ('reader', 'writer')", name="ck_document_members_role")),
+
+    document = relationship("Document", back_populates="members")
+    user = relationship("User")
+
+
+    

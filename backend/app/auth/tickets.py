@@ -4,7 +4,7 @@ import json
 import hmac
 import time
 import secrets
-from app.auth.authz import Role
+from app.auth.roles import Role
 from typing import Final
 from hashlib import sha256
 

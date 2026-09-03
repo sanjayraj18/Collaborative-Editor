@@ -1,6 +1,6 @@
 import pytest
 
-from app.auth.authz import Role
+from app.auth.roles import Role
 from app.auth.tickets import TicketError, issue, verify
 
 SECRET = "test-secret-key-at-least-32-bytes-long!!"
