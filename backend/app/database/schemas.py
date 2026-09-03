@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, DateTime, ForeignKey, String, text, CheckConstraint
+from sqlalchemy import Column, DateTime, ForeignKey, String, text, CheckConstraint, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -23,6 +23,7 @@ class User(Base):
     name = Column(String(25), nullable=False)
     email = Column(String(255), unique=True, nullable=False, index=True)
     password = Column(String(255), nullable=False)
+
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(
         DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
@@ -45,7 +46,11 @@ class RefreshToken(Base):
         index=True,
     )
     token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    family_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+
     expires_at = Column(DateTime(timezone=True), nullable=False)
+
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     user = relationship("User")
@@ -58,6 +63,9 @@ class Document(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     title = Column(String(255), nullable=False)
     owner_id =Column(UUID(as_uuid=True), ForeignKey("users.id" , ondelete="CASCADE"), nullable=False, index=True)
+    visibility = Column(String(16) , nullable=False, server_default="private")
+    permissions_version = Column(Integer, nullable=False, server_default="1")
+
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
 
@@ -72,6 +80,7 @@ class DocumentMember(Base):
     document_id = Column(UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), primary_key=True)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id" , ondelete="CASCADE"), primary_key=True, index=True)
     role = Column(String(16), nullable=False)
+
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
 
     __table_args__ = ( CheckConstraint( "role in ('reader', 'writer')", name="ck_document_members_role")),

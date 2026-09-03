@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     allowed_origins: Annotated[list[str], NoDecode] = []
     ticket_ttl_seconds: int = 30
 
+    login_rate_limit : int = 10
+    login_rate_window_seconds : int = 300
+    rate_limit_fail_open : bool = True
+
 
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"

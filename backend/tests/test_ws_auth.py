@@ -100,21 +100,21 @@ def test_missing_doc_param_closes_4001():
 
 
 def test_replayed_ticket_closes_4001():
-    """First use gets past the nonce and fails authz; the second is a replay."""
+    """First use burns the nonce and fails on the missing document; the second is a replay."""
     ticket = make_ticket()
     url = f"/ws?doc={DOC}&ticket={ticket}"
 
     first = close_code_for(url)
     second = close_code_for(url)
 
-    assert first == CloseCode.UNAUTHORIZED      # burned, then denied by authz
+    assert first == CloseCode.DOC_NOT_FOUND     # burned, then no such document
     assert second == CloseCode.TICKET_INVALID   # never reaches authz again
 
 
 # --- 5. authorization -----------------------------------------------------
 
 
-def test_unknown_document_closes_4003():
-    """A valid ticket whose document does not exist: 4003, never 4001."""
+def test_unknown_document_closes_4004():
+    """A valid ticket whose document does not exist: 4004, never 4001."""
     ticket = make_ticket()
-    assert close_code_for(f"/ws?doc={DOC}&ticket={ticket}") == CloseCode.UNAUTHORIZED
+    assert close_code_for(f"/ws?doc={DOC}&ticket={ticket}") == CloseCode.DOC_NOT_FOUND

@@ -6,7 +6,7 @@ from fastapi import APIRouter, WebSocket
 from app.config import get_settings
 from app.auth.roles import Role
 from app.database.database import SessionLocal
-from app.auth.authz import authorize
+from app.auth.authz import authorize, DocumentNotFound
 from app.protocol import CloseCode
 from app.auth.origin import is_allowed
 from app.auth.tickets import verify, TicketError
@@ -63,12 +63,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         await _reject(websocket, CloseCode.TICKET_INVALID, "replay", claims.nonce)
         return
 
-   
-    current_role = await run_in_threadpool(_lookup_role, claims.user_id, claims.doc_id)
-    if current_role is Role.NONE:
-        await _reject(
-            websocket, CloseCode.UNAUTHORIZED, "authz", f"user={claims.user_id}"
-        )
+    try:
+        current_role = await run_in_threadpool(_lookup_role, claims.user_id, claims.doc_id)
+    except DocumentNotFound:
+        await _reject(websocket, CloseCode.DOC_NOT_FOUND, "doc_missing", claims.doc_id)
         return
 
     role = (

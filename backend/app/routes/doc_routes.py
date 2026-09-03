@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.auth.authz import authorize
+from app.auth.authz import authorize, DocumentNotFound
 from app.auth.dependencies import CurrentUserId
 from app.auth.roles import Role
 from app.auth.tickets import issue
@@ -33,8 +33,15 @@ def create_document(data: DocumentCreate,user_id: CurrentUserId,db: Session = De
 
 @router.post("/{doc_id}/ticket", response_model=TicketResponse)
 def mint_ticket(doc_id: str,user_id: CurrentUserId,db: Session = Depends(get_db)) -> TicketResponse:
- 
-    role = authorize(user_id, doc_id, db)
+
+    try:
+        role = authorize(user_id, doc_id, db)
+    except DocumentNotFound:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found",
+        ) from None
+
     if role is Role.NONE:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
