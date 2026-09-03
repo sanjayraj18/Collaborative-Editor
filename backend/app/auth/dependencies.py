@@ -1,10 +1,10 @@
 from typing import Annotated
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials,HTTPBearer
-from services.token_service import verify_access_token
+from app.services.token_service import verify_access_token
 from sqlalchemy.orm import Session
-from database.database import get_db
-from database.schemas import User
+from app.database.database import get_db
+from app.database.schemas import User
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -32,4 +32,4 @@ def get_current_user(user_id : Annotated[str, Depends(get_current_user_id)] , db
     return user
 
 CurrentUserId = Annotated[str, Depends(get_current_user_id)]
-Currentuser  = Annotated[User, Depends(get_current_user)]
+CurrentUser = Annotated[User, Depends(get_current_user)]

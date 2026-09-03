@@ -25,7 +25,24 @@ class UserResponse(BaseModel):
 
 
 class AccessTokenResponse(BaseModel):
-    """The refresh token is NOT here: it goes out as an HttpOnly cookie."""
 
     access_token: str
     token_type: str = "bearer"
+
+
+class DocumentCreate(BaseModel):
+    title : str = Field(min_length = 1, max_length = 100)
+
+
+class DocumentResponse(BaseModel): 
+    model_config = ConfigDict(from_attributes=True)
+
+    id: UUID
+    title: str
+    owner_id: UUID
+    created_at: datetime
+
+class TicketResponse(BaseModel):
+    ticket: str
+    expires_at: int
+
