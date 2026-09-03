@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     login_rate_limit : int = 10
     login_rate_window_seconds : int = 300
     rate_limit_fail_open : bool = True
+    refresh_reuse_grace_seconds: int = 10
 
 
     jwt_secret_key: str = ""

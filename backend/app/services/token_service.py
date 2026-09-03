@@ -1,7 +1,7 @@
 import hashlib
 import secrets
 from datetime import datetime, timedelta, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import jwt
 from fastapi import HTTPException, status
@@ -24,6 +24,9 @@ def _unauthorized() -> HTTPException:
         detail="Invalid or expired token",
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+def _now() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def create_access_token(user_id: UUID | str) -> str:
@@ -71,44 +74,68 @@ def hash_refresh_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def save_refresh_to_db(user_id: UUID | str, refresh_token: str, db: Session) -> None:
-    expires_at = datetime.now(timezone.utc) + timedelta(
-        days=settings.refresh_token_expire_days
-    )
+def issue_refresh_token(user_id : str |UUID , db :Session , * , family_id : UUID | None = None):
+    token = create_refresh_token()
+
     db.add(
-        RefreshToken(
-            user_id=user_id,
-            token_hash=hash_refresh_token(refresh_token),
-            expires_at=expires_at,
+         RefreshToken(
+            user = user_id,
+            token_hash = hash_refresh_token(token),
+            family_id=family_id or uuid4(),
+            expires_at=_now() + timedelta(days=settings.refresh_token_expire_days)
         )
     )
+
+    db.commit()
+    return token
+
+
+def _revoke_family(family_id : UUID ,db :Session):
+    db.query(RefreshToken).filter(RefreshToken.family_id == family_id).delete()
     db.commit()
 
 
-def validate_refresh_in_db(token: str | None, db: Session) -> str:
+def rotate_refresh_token(token: str | None, db: Session) -> tuple[str, str]:
+
     if not token:
         raise _unauthorized()
 
+    token_hash = hash_refresh_token(token)
+
+    claimed = (db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash, RefreshToken.used_at.is_(None)).update({RefreshToken.used_at : _now()}, synchronize_session=False))
+    db.commit()
+
+    row = db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).first()
+    if row is None:
+        return _unauthorized()
+
+    if claimed == 0:
+        used_at = row.used_at or _now()
+        if(_now() - used_at).total_seconds() > settings.refresh_reuse_grace_seconds:
+            _revoke_family(row.family_id, db)
+        raise _unauthorized()
+
+    if row.expires_at <= _now():
+        _revoke_family(row.family_id, db)
+        raise _unauthorized()
+
+    return str(row.user_id), issue_refresh_token(row.user_id, db, family_id=row.family_id)
+
+    
+def revoke_refresh_token(token: str | None, db: Session) -> None:
+    if not token:
+        return
     row = (
         db.query(RefreshToken)
         .filter(RefreshToken.token_hash == hash_refresh_token(token))
         .first()
     )
     if row is None:
-        raise _unauthorized()
-
-    if row.expires_at <= datetime.now(timezone.utc):
-        db.delete(row)
-        db.commit()
-        raise _unauthorized()
-
-    return str(row.user_id)
-
-
-def revoke_refresh_token(token: str | None, db: Session) -> None:
-    if not token:
         return
-    db.query(RefreshToken).filter(
-        RefreshToken.token_hash == hash_refresh_token(token)
-    ).delete()
+    _revoke_family(row.family_id, db)
+
+
+def revoke_user_tokens(user_id: UUID | str, db: Session) -> int:
+    count = db.query(RefreshToken).filter(RefreshToken.user_id == user_id).delete()
     db.commit()
+    return count
