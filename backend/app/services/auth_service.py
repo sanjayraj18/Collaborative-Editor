@@ -11,21 +11,14 @@ from app.services.token_service import (
 )
 from app.validation.models import SigninRequest, SignupRequest
 
-# One message for both "no such user" and "wrong password". Distinguishing
-# them tells an attacker which emails have accounts.
 INVALID_CREDENTIALS = "Invalid email or password"
-
 
 def email_exists(email: str, db: Session) -> bool:
     return db.query(User).filter(User.email == email).first() is not None
 
-
 def signin_service(data: SigninRequest, db: Session) -> tuple[str, str]:
-    """Returns (access_token, refresh_token)."""
     user = db.query(User).filter(User.email == data.email).first()
 
-    # Always run a real scrypt derivation, even when the user does not exist,
-    # so both branches take the same wall-clock time.
     stored = user.password if user is not None else DUMMY_HASH
     password_ok = verify_password(data.password, stored)
 
@@ -42,7 +35,6 @@ def signin_service(data: SigninRequest, db: Session) -> tuple[str, str]:
 
 
 def signup_service(data: SignupRequest, db: Session) -> tuple[str, str]:
-    """Returns (access_token, refresh_token)."""
     if email_exists(data.email, db):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -58,7 +50,6 @@ def signup_service(data: SignupRequest, db: Session) -> tuple[str, str]:
     try:
         db.commit()
     except IntegrityError:
-        # Lost the race against a concurrent signup with the same email.
         db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

@@ -15,7 +15,6 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
 
 REFRESH_COOKIE = "refresh_token"
-# Scoped so the browser only ships it to /auth/*, never to every request.
 REFRESH_COOKIE_PATH = "/auth"
 
 
@@ -23,17 +22,12 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         key=REFRESH_COOKIE,
         value=token,
-        httponly=True,                 # unreachable from JavaScript -> XSS-safe
-        secure=not settings.is_dev,    # HTTPS only outside dev
+        httponly=True,                
+        secure=not settings.is_dev,    
         samesite="strict",
         path=REFRESH_COOKIE_PATH,
         max_age=settings.refresh_token_expire_days * 24 * 3600,
     )
-
-
-# NOTE: these are `def`, not `async def`. SQLAlchemy's sync session blocks;
-# FastAPI runs sync routes in a threadpool so the event loop stays free for
-# WebSockets. An `async def` here would stall every connected socket.
 
 
 @router.post(
@@ -85,8 +79,6 @@ def signout(
     db: Session = Depends(get_db),
 ) -> Response:
     revoke_refresh_token(refresh_token, db)
-    # The cookie must be cleared on the response we actually return: headers
-    # set on an injected Response are dropped when a Response is returned.
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.delete_cookie(REFRESH_COOKIE, path=REFRESH_COOKIE_PATH)
     return response

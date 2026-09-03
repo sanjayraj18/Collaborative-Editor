@@ -26,9 +26,6 @@ def _unauthorized() -> HTTPException:
     )
 
 
-# --- access token: a JWT, verified with no I/O at all --------------------
-
-
 def create_access_token(user_id: UUID | str) -> str:
     now = datetime.now(timezone.utc)
     payload = {
@@ -51,7 +48,6 @@ def verify_access_token(token: str) -> str:
         payload = jwt.decode(
             token,
             settings.jwt_secret_key,
-            # Pinned. Never read the algorithm from the token's own header.
             algorithms=[settings.jwt_algorithm],
             issuer=JWT_ISSUER,
             audience=JWT_AUDIENCE,
@@ -64,9 +60,6 @@ def verify_access_token(token: str) -> str:
     if not user_id:
         raise _unauthorized()
     return str(user_id)
-
-
-# --- refresh token: opaque random bytes, stored hashed -------------------
 
 
 def create_refresh_token() -> str:

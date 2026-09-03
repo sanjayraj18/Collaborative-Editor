@@ -8,7 +8,6 @@ from app.database.database import Base
 
 
 def _utcnow() -> datetime:
-    """Timezone-aware UTC. datetime.utcnow() is deprecated in 3.12 and naive."""
     return datetime.now(timezone.utc)
 
 
@@ -22,7 +21,6 @@ class User(Base):
     )
     name = Column(String(25), nullable=False)
     email = Column(String(255), unique=True, nullable=False, index=True)
-    # scrypt encoded hashes run ~120 chars; never size this to the password.
     password = Column(String(255), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     updated_at = Column(
@@ -44,7 +42,6 @@ class RefreshToken(Base):
         nullable=False,
         index=True,
     )
-    # sha256 hex digest, never the token itself.
     token_hash = Column(String(64), nullable=False, unique=True, index=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
