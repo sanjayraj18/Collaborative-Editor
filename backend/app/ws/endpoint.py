@@ -77,6 +77,6 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         role,
     )
 
-    # Phase 3: join the Room for claims.doc_id and pass room.submit as on_frame.
-    connection = Connection(websocket, user_id=claims.user_id, doc_id=claims.doc_id)
+
+    connection = Connection(websocket, user_id=claims.user_id, doc_id=claims.doc_id, role=role)
     await connection.run()

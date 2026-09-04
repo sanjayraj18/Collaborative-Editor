@@ -28,8 +28,17 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 10
     refresh_token_expire_days: int = 30
 
+    ping_interval_seconds: int = 20
+    pong_timeout_seconds: int = 45
+
+    max_frame_bytes: int = 1024 * 1024
+    send_queue_max_frames: int = 256
+    send_queue_max_bytes: int = 8 * 1024 * 1024
     hello_timeout_seconds: float = 5.0
     slow_consumer_grace_seconds: float = 5.0
+
+    room_idle_ttl_seconds: int = 60
+    resume_ring_size: int = 1024
 
     database_url: str
     redis_url: str
