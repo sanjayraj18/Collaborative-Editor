@@ -13,6 +13,7 @@ from app.auth.tickets import TicketError, verify
 from app.config import get_settings
 from app.database.database import SessionLocal
 from app.protocol import CloseCode
+from app.ws.connection import Connection
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -76,6 +77,6 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         role,
     )
 
-    # Phase 2: hand off to Connection here.
-    # Phase 3: join the Room for claims.doc_id.
-    await websocket.close(code=CloseCode.NORMAL)
+    # Phase 3: join the Room for claims.doc_id and pass room.submit as on_frame.
+    connection = Connection(websocket, user_id=claims.user_id, doc_id=claims.doc_id)
+    await connection.run()

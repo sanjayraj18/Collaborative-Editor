@@ -78,7 +78,7 @@ def issue_refresh_token(user_id: str | UUID, db: Session, *, family_id: UUID | N
 
     db.add(
         RefreshToken(
-            user=user_id,
+            user_id=user_id,
             token_hash=hash_refresh_token(token),
             family_id=family_id or uuid4(),
             expires_at=_now() + timedelta(days=settings.refresh_token_expire_days),
