@@ -1,8 +1,10 @@
 import asyncio
+import contextlib
 import logging
 import uuid
 
 from fastapi import WebSocket
+from starlette.websockets import WebSocketDisconnect
 
 from app.auth.roles import Role
 from app.config import settings
@@ -41,10 +43,19 @@ class Connection:
         self._closing = asyncio.Event()
 
 
+    async def _receive_raw(self) -> bytes:
+        message = await self._ws.receive()
+        if message["type"] == "websocket.disconnect":
+            raise WebSocketDisconnect(message.get("code", 1005))
+        raw: bytes | None = message.get("bytes")
+        if raw is None:
+            raise ProtocolError("expected a binary frame, got text")
+        return raw
+
     async def _handshake(self) -> None:
         """Exchange CLIENT_HELLO for SERVER_HELLO. PROTOCOL.md §5 step 3."""
         raw = await asyncio.wait_for(
-            self._ws.receive_bytes(),
+            self._receive_raw(),
             timeout=settings.hello_timeout_seconds,
         )
         frame = decode(raw, max_frame_bytes=settings.max_frame_bytes)
@@ -82,10 +93,18 @@ class Connection:
     async def run(self) -> None:
         try:
             await self._handshake()
-        except (TimeoutError, ProtocolError) as exc:
-            logger.warning("handshake_failed conn=%s detail=%s", self.conn_id, exc)
+        except TimeoutError:
+            logger.warning("hello_timeout conn=%s", self.conn_id)
             await self._ws.close(code=CloseCode.PROTOCOL_ERROR)
             return
+        except ProtocolError as exc:
+            logger.warning(
+                "handshake_failed conn=%s detail=%s", self.conn_id, exc.message
+            )
+            await self._ws.close(code=exc.close_code)
+            return
+        except WebSocketDisconnect:
+            return  # client hung up mid-handshake; nothing to close
 
         logger.info(
             "conn_open conn=%s doc=%s role=%s client_id=%s",
@@ -107,10 +126,8 @@ class Connection:
 
         code = self._close_code or CloseCode.NORMAL
         logger.info("conn_close conn=%s code=%d", self.conn_id, int(code))
-        try:
+        with contextlib.suppress(RuntimeError):  # peer already closed it
             await self._ws.close(code=int(code))
-        except RuntimeError:
-            pass
 
     def send(self, frame: Frame) -> bool:
         if self._closing.is_set():
@@ -143,22 +160,55 @@ class Connection:
 
         if self._overflow_since is None:
             self._overflow_since = now
-            logger.warning("send_queue_full ...")
+            logger.warning(
+                "send_queue_full conn=%s frames=%d bytes=%d",
+                self.conn_id, self._queue.qsize(), self._queued_bytes,
+            )
             return
 
         if now - self._overflow_since >= settings.slow_consumer_grace_seconds:
-            logger.warning("slow consumer evicted")
+            logger.warning(
+                "slow_consumer_evicted conn=%s stalled_for=%.1fs",
+                self.conn_id, now - self._overflow_since,
+            )
             self.close(CloseCode.SLOW_CONSUMER)
 
     async def _read_loop(self) -> None:
-        while True:
-            raw = await self._ws.receive_bytes()
-            frame = decode(raw, max_frame_bytes=settings.max_frame_bytes)
-            logger.info("recv conn=%s %r", self.conn_id, frame)
-            self.send(frame)
+        """Never raises. Every failure becomes a close code."""
+        try:
+            while True:
+                raw = await self._receive_raw()
+                frame = decode(raw, max_frame_bytes=settings.max_frame_bytes)
+
+                if frame.type is FrameType.CLIENT_HELLO:
+                    raise ProtocolError("duplicate CLIENT_HELLO")
+
+                logger.info("recv conn=%s %r", self.conn_id, frame)
+                self.send(frame)
+
+        except WebSocketDisconnect:
+            self.close(CloseCode.GOING_AWAY)
+        except ProtocolError as exc:
+            logger.warning(
+                "protocol_error conn=%s detail=%s", self.conn_id, exc.message
+            )
+            self.close(exc.close_code)
+        # CancelledError is a BaseException in 3.8+, so this does not swallow
+        # cancellation — run() can still tear the task down cleanly.
+        except Exception:
+            logger.exception("reader_crashed conn=%s", self.conn_id)
+            self.close(CloseCode.PROTOCOL_ERROR)
 
     async def _write_loop(self) -> None:
-        while True:
-            payload = await self._queue.get()
-            self._queued_bytes -= len(payload)
-            await self._ws.send_bytes(payload)
+        """The sole owner of the socket's send side."""
+        try:
+            while True:
+                payload = await self._queue.get()
+                self._queued_bytes -= len(payload)
+                await self._ws.send_bytes(payload)
+
+        except (WebSocketDisconnect, RuntimeError):
+            self.close(CloseCode.GOING_AWAY)
+        except Exception:
+            logger.exception("writer_crashed conn=%s", self.conn_id)
+            self.close(CloseCode.GOING_AWAY)
