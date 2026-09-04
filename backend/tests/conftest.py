@@ -3,7 +3,6 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app.config import get_settings
-from app.database import schemas 
 from app.database.database import Base
 
 settings = get_settings()

@@ -6,17 +6,15 @@ from app.auth.passwords import DUMMY_HASH, hash_password, verify_password
 from app.database.schemas import User
 from app.services.token_service import (
     create_access_token,
-    create_refresh_token,
-    issue_refresh_token
+    issue_refresh_token,
 )
 from app.validation.models import SigninRequest, SignupRequest
 
-
 INVALID_CREDENTIALS = "Invalid email or password"
+
 
 def email_exists(email: str, db: Session) -> bool:
     return db.query(User).filter(User.email == email).first() is not None
-
 
 
 def signin_service(data: SigninRequest, db: Session) -> tuple[str, str]:
@@ -48,7 +46,7 @@ def signup_service(data: SignupRequest, db: Session) -> tuple[str, str]:
         password=hash_password(data.password),
     )
     db.add(user)
-    
+
     try:
         db.commit()
     except IntegrityError:

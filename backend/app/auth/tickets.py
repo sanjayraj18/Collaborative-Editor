@@ -1,13 +1,13 @@
 import base64
-from dataclasses import dataclass
-import json
 import hmac
-import time
+import json
 import secrets
-from app.auth.roles import Role
-from typing import Final
+import time
+from dataclasses import dataclass
 from hashlib import sha256
+from typing import Final
 
+from app.auth.roles import Role
 
 TICKET_VERSION: Final[str] = "v1"
 NONCE_BYTES: Final[int] = 16
@@ -29,7 +29,6 @@ class TicketClaims:
     expires_at: int
 
 
-
 def _b64url_encode(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
 
@@ -48,8 +47,15 @@ def _sign(signing_input: str, secret: str) -> str:
     return _b64url_encode(digest)
 
 
-
-def issue(*,user_id : str, doc_id : str, secret : str, role : Role, ttl_seconds:int , now :float|None = None) -> tuple[str, int]:
+def issue(
+    *,
+    user_id: str,
+    doc_id: str,
+    secret: str,
+    role: Role,
+    ttl_seconds: int,
+    now: float | None = None,
+) -> tuple[str, int]:
 
     if role is Role.NONE:
         raise ValueError("refusing to issue a ticket for Role.NONE")
@@ -58,11 +64,11 @@ def issue(*,user_id : str, doc_id : str, secret : str, role : Role, ttl_seconds:
     expires_at = issued_at + ttl_seconds
 
     payload = {
-        "u" : user_id,
-        "d" : doc_id,
-        "r" : str(role),
-        "n" : secrets.token_urlsafe(NONCE_BYTES),
-        "e" : expires_at,
+        "u": user_id,
+        "d": doc_id,
+        "r": str(role),
+        "n": secrets.token_urlsafe(NONCE_BYTES),
+        "e": expires_at,
     }
     payload_b64 = _b64url_encode(
         json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
@@ -73,9 +79,8 @@ def issue(*,user_id : str, doc_id : str, secret : str, role : Role, ttl_seconds:
     return f"{signing_input}.{_sign(signing_input, secret)}", expires_at
 
 
+def verify(ticket: str | None, *, secret: str, now: float | None = None) -> TicketClaims:
 
-def verify( ticket: str | None, *,secret: str,now: float | None = None) -> TicketClaims:
- 
     current_time = int(time.time() if now is None else now)
 
     if not ticket:
@@ -94,7 +99,6 @@ def verify( ticket: str | None, *,secret: str,now: float | None = None) -> Ticke
     expected = _sign(f"{version}.{payload_b64}", secret)
     if not hmac.compare_digest(expected, signature):
         raise TicketError("bad signature")
-
 
     try:
         payload = json.loads(_b64url_decode(payload_b64))

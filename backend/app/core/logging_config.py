@@ -1,30 +1,50 @@
-from datetime import datetime, timezone
-from typing import Any, Dict
-import logging
-from app.core.context import get_request_id
 import json
+import logging
 import sys
+from datetime import UTC, datetime
+from typing import Any
+
+from app.core.context import get_request_id
 
 _RESERVED = {
-    "args", "asctime", "created", "exc_info", "exc_text", "filename",
-    "funcName", "levelname", "levelno", "lineno", "message", "module",
-    "msecs", "msg", "name", "pathname", "process", "processName",
-    "relativeCreated", "stack_info", "taskName", "thread", "threadName",
+    "args",
+    "asctime",
+    "created",
+    "exc_info",
+    "exc_text",
+    "filename",
+    "funcName",
+    "levelname",
+    "levelno",
+    "lineno",
+    "message",
+    "module",
+    "msecs",
+    "msg",
+    "name",
+    "pathname",
+    "process",
+    "processName",
+    "relativeCreated",
+    "stack_info",
+    "taskName",
+    "thread",
+    "threadName",
 }
 
-_NOISE={"color_message"}
+_NOISE = {"color_message"}
+
 
 class JSONFormatter(logging.Formatter):
-
-    def __init__(self, service: str="app"):
+    def __init__(self, service: str = "app"):
         super().__init__()
         self.service = service
 
-    def format(self,record : logging.LogRecord) -> str:
-        payload : Dict[str,Any] = {
-            "timestamp": datetime.fromtimestamp(
-                record.created, tz=timezone.utc
-            ).isoformat(timespec="milliseconds"),
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict[str, Any] = {
+            "timestamp": datetime.fromtimestamp(record.created, tz=UTC).isoformat(
+                timespec="milliseconds"
+            ),
             "level": record.levelname,
             "service": self.service,
             "logger": record.name,
@@ -32,7 +52,7 @@ class JSONFormatter(logging.Formatter):
             "request_id": get_request_id(),
         }
 
-        for key,value in  record.__dict__.items():
+        for key, value in record.__dict__.items():
             if key not in _RESERVED and key not in _NOISE and not key.startswith("_"):
                 payload[key] = value
 
@@ -45,7 +65,7 @@ class JSONFormatter(logging.Formatter):
         return json.dumps(payload, default=str, ensure_ascii=False)
 
 
-def setup_logging(level : str = 'DEBUG', service: str= "app") -> None:
+def setup_logging(level: str = "DEBUG", service: str = "app") -> None:
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(JSONFormatter(service=service))
@@ -55,7 +75,7 @@ def setup_logging(level : str = 'DEBUG', service: str= "app") -> None:
     root.addHandler(handler)
     root.setLevel(level.upper())
 
-    for name in "uvicorn" , "uvicorn.error":
+    for name in "uvicorn", "uvicorn.error":
         logger = logging.getLogger(name)
         logger.handlers.clear()
         logger.propagate = True

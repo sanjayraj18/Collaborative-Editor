@@ -1,9 +1,9 @@
 import pytest
 
-from app.auth.roles import Role
-from app.auth.passwords import hash_password
-from app.database.schemas import Document, DocumentMember, User
 from app.auth.authz import DocumentNotFound, authorize, get_permissions_version
+from app.auth.passwords import hash_password
+from app.auth.roles import Role
+from app.database.schemas import Document, DocumentMember, User
 from tests.conftest import requires_db
 
 pytestmark = requires_db

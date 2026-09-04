@@ -1,28 +1,24 @@
 import uuid
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.types import ASGIApp
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.types import ASGIApp
 
-from typing import Optional
 from app.core.context import set_request_id
 
 REQUEST_ID_HEADER = "X-Request-ID"
 
 _MAX_LENGTH = 64
-_ALLOWED_CHARS = set(
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
-)
+_ALLOWED_CHARS = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
 
 
 class RequestIDMiddleware(BaseHTTPMiddleware):
-
-    def __init__(self, app : ASGIApp, header_name : str=REQUEST_ID_HEADER):
+    def __init__(self, app: ASGIApp, header_name: str = REQUEST_ID_HEADER):
         super().__init__(app)
         self.header_name = header_name
 
-    async def dispatch(self, request : Request, call_next : RequestResponseEndpoint) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         incoming = self._clean(request.headers.get(self.header_name))
 
         request_id = incoming or str(uuid.uuid4())
@@ -35,7 +31,7 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
         return response
 
     @staticmethod
-    def _clean(value : Optional[str]) -> Optional[str]:
+    def _clean(value: str | None) -> str | None:
         if not value:
             return None
 

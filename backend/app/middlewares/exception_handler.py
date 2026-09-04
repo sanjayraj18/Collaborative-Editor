@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List
+from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -13,11 +13,11 @@ logger = logging.getLogger("middleware.exceptions")
 GENERIC_500_DETAIL = "Internal server error"
 
 
-def _request_id(request : Request) -> str:
+def _request_id(request: Request) -> str:
     return getattr(request.state, "request_id", None) or get_request_id()
 
 
-def _safe_errors(exc : RequestValidationError) -> List[Dict[str, Any]]:
+def _safe_errors(exc: RequestValidationError) -> list[dict[str, Any]]:
     return [
         {
             "field": ".".join(str(part) for part in err.get("loc", ())),
@@ -27,10 +27,10 @@ def _safe_errors(exc : RequestValidationError) -> List[Dict[str, Any]]:
     ]
 
 
-def register_exception_handlers(app : FastAPI) -> None:
+def register_exception_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(StarletteHTTPException)
-    async def handle_http_exception(request : Request, exc : StarletteHTTPException) -> JSONResponse:
+    async def handle_http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
         logger.info(
             "http_exception",
             extra={
@@ -46,7 +46,9 @@ def register_exception_handlers(app : FastAPI) -> None:
         )
 
     @app.exception_handler(RequestValidationError)
-    async def handle_validation_error(request : Request, exc : RequestValidationError) -> JSONResponse:
+    async def handle_validation_error(
+        request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
         errors = _safe_errors(exc)
         logger.warning(
             "validation_error",
@@ -58,7 +60,7 @@ def register_exception_handlers(app : FastAPI) -> None:
         )
 
     @app.exception_handler(Exception)
-    async def handle_unhandled(request : Request, exc : Exception) -> JSONResponse:
+    async def handle_unhandled(request: Request, exc: Exception) -> JSONResponse:
         logger.error(
             "unhandled_exception",
             exc_info=exc,

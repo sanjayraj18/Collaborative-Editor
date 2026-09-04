@@ -1,12 +1,14 @@
 import logging
-from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+
 from app.config import get_settings
-from app.middlewares.logging import LoggingMiddleware
 from app.core.logging_config import setup_logging
 from app.middlewares.exception_handler import register_exception_handlers
+from app.middlewares.logging import LoggingMiddleware
 from app.middlewares.request_id import RequestIDMiddleware
-from fastapi import FastAPI
 from app.routes.auth_routes import router as auth_router
 from app.routes.doc_routes import router as doc_router
 from app.ws.endpoint import router as ws_router

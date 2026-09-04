@@ -1,26 +1,31 @@
-import time
 import logging
-from typing import Optional
+import time
 from urllib.parse import urlencode
 
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
-from starlette.types import ASGIApp
 from starlette.requests import Request
 from starlette.responses import Response
+from starlette.types import ASGIApp
 
 _SENSITIVE_QUERY = {
-    "password", "token", "access_token", "refresh_token", "secret", "api_key",
+    "password",
+    "token",
+    "access_token",
+    "refresh_token",
+    "secret",
+    "api_key",
 }
 _REDACTED = "[REDACTED]"
 
 logger = logging.getLogger(__name__)
 
+
 class LoggingMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app : ASGIApp, slow_request_ms : int =1000):
+    def __init__(self, app: ASGIApp, slow_request_ms: int = 1000):
         super().__init__(app)
         self.slow_request_ms = slow_request_ms
 
-    async def dispatch(self, request: Request, call_next : RequestResponseEndpoint) -> Response:
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         started = time.perf_counter()
         method = request.method
         path = request.url.path
@@ -32,13 +37,13 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 "path": path,
                 "query": self._safe_query(request),
                 "client_ip": request.client.host if request.client else None,
-            }
+            },
         )
 
         status_code = 500
-        size : Optional[str] = None
+        size: str | None = None
 
-        try : 
+        try:
             response = await call_next(request)
             status_code = response.status_code
             size = response.headers.get("content-length")
@@ -63,7 +68,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 )
 
     @staticmethod
-    def _safe_query(request: Request) -> Optional[str]:
+    def _safe_query(request: Request) -> str | None:
         if not request.url.query:
             return None
 

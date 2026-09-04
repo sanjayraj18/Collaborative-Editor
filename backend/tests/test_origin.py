@@ -22,10 +22,10 @@ def test_case_insensitive():
 @pytest.mark.parametrize(
     "origin",
     [
-        "http://localhost:5174",          # wrong port
-        "https://localhost:5173",         # wrong scheme
-        "http://evil.com",                # wrong host
-        "http://sub.localhost:5173",      # subdomain is a different origin
+        "http://localhost:5174",  # wrong port
+        "https://localhost:5173",  # wrong scheme
+        "http://evil.com",  # wrong host
+        "http://sub.localhost:5173",  # subdomain is a different origin
     ],
 )
 def test_mismatches_rejected(origin):

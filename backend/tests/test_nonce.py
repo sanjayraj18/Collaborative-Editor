@@ -1,7 +1,4 @@
-
 import time
-
-import pytest
 
 from app.auth.nonce import InMemoryNonceStore
 

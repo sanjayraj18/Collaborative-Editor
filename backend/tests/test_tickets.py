@@ -109,9 +109,13 @@ def test_role_escalation_by_forgery_rejected():
     padded = payload_b64 + "=" * (-len(payload_b64) % 4)
     payload = json.loads(base64.urlsafe_b64decode(padded))
     payload["r"] = "writer"
-    forged = base64.urlsafe_b64encode(
-        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
-    ).rstrip(b"=").decode()
+    forged = (
+        base64.urlsafe_b64encode(
+            json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+        )
+        .rstrip(b"=")
+        .decode()
+    )
 
     with pytest.raises(TicketError, match="bad signature"):
         verify(f"{version}.{forged}.{signature}", secret=SECRET, now=NOW)

@@ -1,11 +1,14 @@
 from __future__ import annotations
+
 from collections.abc import Iterable
 
-def normalize(origin : str) -> str:
+
+def normalize(origin: str) -> str:
     return origin.strip().rstrip("/").lower()
 
+
 def is_allowed(origin: str | None, allowlist: Iterable[str]) -> bool:
-  
+
     if not origin:
         return False
 
@@ -14,4 +17,3 @@ def is_allowed(origin: str | None, allowlist: Iterable[str]) -> bool:
         return False
 
     return normalize(origin) in allowed
-

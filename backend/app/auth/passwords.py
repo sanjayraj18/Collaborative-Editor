@@ -53,9 +53,7 @@ def hash_password(password: str) -> str:
 
     salt = secrets.token_bytes(SALT_BYTES)
     key = _derive(password, salt, SCRYPT_N, SCRYPT_R, SCRYPT_P)
-    return "$".join(
-        [ALGORITHM, str(SCRYPT_N), str(SCRYPT_R), str(SCRYPT_P), _b64(salt), _b64(key)]
-    )
+    return "$".join([ALGORITHM, str(SCRYPT_N), str(SCRYPT_R), str(SCRYPT_P), _b64(salt), _b64(key)])
 
 
 def verify_password(password: str, encoded: str) -> bool:

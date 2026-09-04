@@ -1,6 +1,6 @@
 import hashlib
 import secrets
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import jwt
@@ -25,20 +25,19 @@ def _unauthorized() -> HTTPException:
         headers={"WWW-Authenticate": "Bearer"},
     )
 
+
 def _now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def create_access_token(user_id: UUID | str) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "sub": str(user_id),
         "iss": JWT_ISSUER,
         "aud": JWT_AUDIENCE,
         "iat": int(now.timestamp()),
-        "exp": int(
-            (now + timedelta(minutes=settings.access_token_expire_minutes)).timestamp()
-        ),
+        "exp": int((now + timedelta(minutes=settings.access_token_expire_minutes)).timestamp()),
         "jti": secrets.token_urlsafe(16),
     }
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
@@ -74,15 +73,15 @@ def hash_refresh_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
-def issue_refresh_token(user_id : str |UUID , db :Session , * , family_id : UUID | None = None):
+def issue_refresh_token(user_id: str | UUID, db: Session, *, family_id: UUID | None = None):
     token = create_refresh_token()
 
     db.add(
-         RefreshToken(
-            user = user_id,
-            token_hash = hash_refresh_token(token),
+        RefreshToken(
+            user=user_id,
+            token_hash=hash_refresh_token(token),
             family_id=family_id or uuid4(),
-            expires_at=_now() + timedelta(days=settings.refresh_token_expire_days)
+            expires_at=_now() + timedelta(days=settings.refresh_token_expire_days),
         )
     )
 
@@ -90,7 +89,7 @@ def issue_refresh_token(user_id : str |UUID , db :Session , * , family_id : UUID
     return token
 
 
-def _revoke_family(family_id : UUID ,db :Session):
+def _revoke_family(family_id: UUID, db: Session):
     db.query(RefreshToken).filter(RefreshToken.family_id == family_id).delete()
     db.commit()
 
@@ -102,16 +101,20 @@ def rotate_refresh_token(token: str | None, db: Session) -> tuple[str, str]:
 
     token_hash = hash_refresh_token(token)
 
-    claimed = (db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash, RefreshToken.used_at.is_(None)).update({RefreshToken.used_at : _now()}, synchronize_session=False))
+    claimed = (
+        db.query(RefreshToken)
+        .filter(RefreshToken.token_hash == token_hash, RefreshToken.used_at.is_(None))
+        .update({RefreshToken.used_at: _now()}, synchronize_session=False)
+    )
     db.commit()
 
     row = db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).first()
     if row is None:
-        return _unauthorized()
+        raise _unauthorized()
 
     if claimed == 0:
         used_at = row.used_at or _now()
-        if(_now() - used_at).total_seconds() > settings.refresh_reuse_grace_seconds:
+        if (_now() - used_at).total_seconds() > settings.refresh_reuse_grace_seconds:
             _revoke_family(row.family_id, db)
         raise _unauthorized()
 
@@ -121,14 +124,12 @@ def rotate_refresh_token(token: str | None, db: Session) -> tuple[str, str]:
 
     return str(row.user_id), issue_refresh_token(row.user_id, db, family_id=row.family_id)
 
-    
+
 def revoke_refresh_token(token: str | None, db: Session) -> None:
     if not token:
         return
     row = (
-        db.query(RefreshToken)
-        .filter(RefreshToken.token_hash == hash_refresh_token(token))
-        .first()
+        db.query(RefreshToken).filter(RefreshToken.token_hash == hash_refresh_token(token)).first()
     )
     if row is None:
         return

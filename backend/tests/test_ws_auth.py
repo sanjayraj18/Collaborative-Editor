@@ -53,9 +53,7 @@ def close_code_for(url: str, headers=ORIGIN) -> int:
 def test_bad_origin_never_upgrades(headers):
     ticket = make_ticket()
     with pytest.raises(Exception):
-        with client.websocket_connect(
-            f"/ws?doc={DOC}&ticket={ticket}", headers=headers
-        ):
+        with client.websocket_connect(f"/ws?doc={DOC}&ticket={ticket}", headers=headers):
             pass
 
 
@@ -107,8 +105,8 @@ def test_replayed_ticket_closes_4001():
     first = close_code_for(url)
     second = close_code_for(url)
 
-    assert first == CloseCode.DOC_NOT_FOUND     # burned, then no such document
-    assert second == CloseCode.TICKET_INVALID   # never reaches authz again
+    assert first == CloseCode.DOC_NOT_FOUND  # burned, then no such document
+    assert second == CloseCode.TICKET_INVALID  # never reaches authz again
 
 
 # --- 5. authorization -----------------------------------------------------

@@ -1,23 +1,20 @@
-
 import time
-from typing import Protocol, Final
-
+from typing import Final, Protocol
 
 DEFAULT_TTL_SECONDS: Final[int] = 120
 _SWEEP_EVERY: Final[int] = 256
 
 
 class NonceStore(Protocol):
-    def burn(self, nonce:str, *, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> bool:
-        ...
+    def burn(self, nonce: str, *, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> bool: ...
+
 
 class InMemoryNonceStore:
-
     def __init__(self) -> None:
-        self._burned : dict[str, float] = {}
-        self._since_sweep= 0
+        self._burned: dict[str, float] = {}
+        self._since_sweep = 0
 
-    def burn(self, nonce:str, *, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> bool:
+    def burn(self, nonce: str, *, ttl_seconds: int = DEFAULT_TTL_SECONDS) -> bool:
         if not nonce:
             return False
 
@@ -36,12 +33,10 @@ class InMemoryNonceStore:
         self._since_sweep += 1
         if self._since_sweep < _SWEEP_EVERY:
             return
-        
+
         self._since_sweep = 0
         self._burned = {
-            nonce: expires_at
-            for nonce, expires_at in self._burned.items()
-            if expires_at > now
+            nonce: expires_at for nonce, expires_at in self._burned.items() if expires_at > now
         }
 
     def __len__(self) -> int:

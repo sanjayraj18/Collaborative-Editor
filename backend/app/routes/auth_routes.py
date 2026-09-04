@@ -1,15 +1,16 @@
-from fastapi import APIRouter, Cookie, Depends, Response, status
+from fastapi import APIRouter, Cookie, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import CurrentUserId
+from app.auth.ratelimit import clear_login_rate_limit, enforce_login_rate_limit
 from app.config import get_settings
 from app.database.database import get_db
-from app.auth.dependencies import CurrentUserId
 from app.services.auth_service import signin_service, signup_service
 from app.services.token_service import (
     create_access_token,
     revoke_refresh_token,
+    revoke_user_tokens,
     rotate_refresh_token,
-    revoke_user_tokens
 )
 from app.validation.models import AccessTokenResponse, SigninRequest, SignupRequest
 
@@ -24,8 +25,8 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
     response.set_cookie(
         key=REFRESH_COOKIE,
         value=token,
-        httponly=True,                
-        secure=not settings.is_dev,    
+        httponly=True,
+        secure=not settings.is_dev,
         samesite="strict",
         path=REFRESH_COOKIE_PATH,
         max_age=settings.refresh_token_expire_days * 24 * 3600,
@@ -42,7 +43,7 @@ def signup(
     response: Response,
     db: Session = Depends(get_db),
 ) -> AccessTokenResponse:
-    
+
     access_token, refresh_token = signup_service(data, db)
     _set_refresh_cookie(response, refresh_token)
     return AccessTokenResponse(access_token=access_token)
@@ -55,11 +56,14 @@ def signup(
 )
 def signin(
     data: SigninRequest,
+    request: Request,
     response: Response,
     db: Session = Depends(get_db),
 ) -> AccessTokenResponse:
-    
+
+    enforce_login_rate_limit(request, data.email)
     access_token, refresh_token = signin_service(data, db)
+    clear_login_rate_limit(data.email)
     _set_refresh_cookie(response, refresh_token)
     return AccessTokenResponse(access_token=access_token)
 
@@ -74,7 +78,7 @@ def refresh(
     refresh_token: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
     db: Session = Depends(get_db),
 ) -> AccessTokenResponse:
-    
+
     user_id, new_refresh_token = rotate_refresh_token(refresh_token, db)
     _set_refresh_cookie(response, new_refresh_token)
     return AccessTokenResponse(access_token=create_access_token(user_id))
@@ -85,7 +89,7 @@ def signout(
     refresh_token: str | None = Cookie(default=None, alias=REFRESH_COOKIE),
     db: Session = Depends(get_db),
 ) -> Response:
-    
+
     revoke_refresh_token(refresh_token, db)
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.delete_cookie(REFRESH_COOKIE, path=REFRESH_COOKIE_PATH)
@@ -97,7 +101,7 @@ def signout_all(
     user_id: CurrentUserId,
     db: Session = Depends(get_db),
 ) -> Response:
-    
+
     revoke_user_tokens(user_id, db)
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.delete_cookie(REFRESH_COOKIE, path=REFRESH_COOKIE_PATH)

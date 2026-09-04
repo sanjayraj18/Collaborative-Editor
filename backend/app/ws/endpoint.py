@@ -3,28 +3,28 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, WebSocket
-from app.config import get_settings
-from app.auth.roles import Role
-from app.database.database import SessionLocal
-from app.auth.authz import authorize, DocumentNotFound
-from app.protocol import CloseCode
-from app.auth.origin import is_allowed
-from app.auth.tickets import verify, TicketError
-from app.auth.nonce import nonce_store
 from starlette.concurrency import run_in_threadpool
 
+from app.auth.authz import DocumentNotFound, authorize
+from app.auth.nonce import nonce_store
+from app.auth.origin import is_allowed
+from app.auth.roles import Role
+from app.auth.tickets import TicketError, verify
+from app.config import get_settings
+from app.database.database import SessionLocal
+from app.protocol import CloseCode
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
 
-def _lookup_role(user_id : str, doc_id : str) -> Role:
+def _lookup_role(user_id: str, doc_id: str) -> Role:
     with SessionLocal() as db:
         return authorize(user_id, doc_id, db)
 
 
-async def _reject(websocket : WebSocket, code : CloseCode, stage : str, detail : str) -> None:
+async def _reject(websocket: WebSocket, code: CloseCode, stage: str, detail: str) -> None:
     logger.warning("ws_reject stage=%s detail=%s", stage, detail)
     await websocket.close(code=code)
 
@@ -48,7 +48,6 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         await _reject(websocket, CloseCode.TICKET_INVALID, "ticket", exc.reason)
         return
 
- 
     if doc_id is None or claims.doc_id != doc_id:
         await _reject(
             websocket,
@@ -57,7 +56,6 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             f"ticket={claims.doc_id} query={doc_id}",
         )
         return
-
 
     if not nonce_store.burn(claims.nonce):
         await _reject(websocket, CloseCode.TICKET_INVALID, "replay", claims.nonce)
@@ -69,11 +67,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         await _reject(websocket, CloseCode.DOC_NOT_FOUND, "doc_missing", claims.doc_id)
         return
 
-    role = (
-        Role.WRITER
-        if (claims.role.can_write and current_role.can_write)
-        else Role.READER
-    )
+    role = Role.WRITER if (claims.role.can_write and current_role.can_write) else Role.READER
 
     logger.info(
         "ws_accept user=%s doc=%s role=%s",

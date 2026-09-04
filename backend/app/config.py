@@ -18,21 +18,18 @@ class Settings(BaseSettings):
     allowed_origins: Annotated[list[str], NoDecode] = []
     ticket_ttl_seconds: int = 30
 
-    login_rate_limit : int = 10
-    login_rate_window_seconds : int = 300
-    rate_limit_fail_open : bool = True
+    login_rate_limit: int = 10
+    login_rate_window_seconds: int = 300
+    rate_limit_fail_open: bool = True
     refresh_reuse_grace_seconds: int = 10
-
 
     jwt_secret_key: str = ""
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 10
     refresh_token_expire_days: int = 30
 
-
     ping_interval_seconds: int = 20
     pong_timeout_seconds: int = 45
-
 
     max_frame_bytes: int = 1024 * 1024
     send_queue_max_frames: int = 256
@@ -41,7 +38,6 @@ class Settings(BaseSettings):
     room_idle_ttl_seconds: int = 60
     resume_ring_size: int = 1024
 
-  
     database_url: str
     redis_url: str
 
