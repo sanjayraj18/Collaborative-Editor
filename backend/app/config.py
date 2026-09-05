@@ -39,6 +39,10 @@ class Settings(BaseSettings):
 
     room_inbox_max_frames: int = 1024
     room_idle_ttl_seconds: int = 60
+
+    reaper_interval_seconds: int = 10
+    permission_check_seconds: int = 30
+
     resume_ring_size: int = 1024
 
     database_url: str

@@ -27,6 +27,10 @@ class Room:
         return len(self._members)
 
 
+    def ticker(self):
+        pass
+
+
     def _dispatch(self, sender : Connection, frame : Frame) -> None:
         if frame.type is FrameType.UPDATE:
             self._handle_update(sender, frame)

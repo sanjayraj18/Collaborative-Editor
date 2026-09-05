@@ -3,6 +3,7 @@ import contextlib
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
+import time
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
@@ -49,8 +50,22 @@ class Connection:
         self._close_code: CloseCode | None = None
         self._closing = asyncio.Event()
 
+        self._last_seen_at : float| None = None
+
         #this is to link the connection to the rooms or sending the client frame to the room
         self._on_frame = on_frame
+
+
+    def ping(self) -> None:
+        self.send(Frame.control(FrameType.PING, {"t": int(time.time() * 1000)}))
+
+
+    def is_stale(self) -> bool:
+        if self._last_seen_at is None:
+            return False   
+        
+        elapsed = asyncio.get_running_loop().time() - self._last_seen_at
+        return elapsed > settings.pong_timeout_seconds
 
 
     async def _receive_raw(self) -> bytes:
@@ -105,10 +120,12 @@ class Connection:
     async def run(self) -> None:
         try:
             await self._handshake()
+
         except TimeoutError:
             logger.warning("hello_timeout conn=%s", self.conn_id)
             await self._ws.close(code=CloseCode.PROTOCOL_ERROR)
             return
+        
         except ProtocolError as exc:
             logger.warning(
                 "handshake_failed conn=%s detail=%s", self.conn_id, exc.message
@@ -116,8 +133,9 @@ class Connection:
             await self._ws.close(code=exc.close_code)
             return
         except WebSocketDisconnect:
-            return  # client hung up mid-handshake; nothing to close
+            return
 
+        self._last_seen_at = asyncio.get_running_loop().time()
         logger.info(
             "conn_open conn=%s doc=%s role=%s client_id=%s",
             self.conn_id, self.doc_id, self.role, self.client_id,
@@ -168,6 +186,7 @@ class Connection:
             self._close_code = code
         self._closing.set()
 
+
     def _note_overflow(self) -> None:
         now = asyncio.get_running_loop().time()
 
@@ -186,12 +205,15 @@ class Connection:
             )
             self.close(CloseCode.SLOW_CONSUMER)
 
+
     async def _read_loop(self) -> None:
-        """Never raises. Every failure becomes a close code."""
+       
         try:
             while True:
                 raw = await self._receive_raw()
                 frame = decode(raw, max_frame_bytes=settings.max_frame_bytes)
+
+                self._last_seen_at = asyncio.get_running_loop().time() 
 
                 if frame.type is FrameType.CLIENT_HELLO:
                     raise ProtocolError("duplicate CLIENT_HELLO")
@@ -201,16 +223,17 @@ class Connection:
 
         except WebSocketDisconnect:
             self.close(CloseCode.GOING_AWAY)
+
         except ProtocolError as exc:
             logger.warning(
                 "protocol_error conn=%s detail=%s", self.conn_id, exc.message
             )
             self.close(exc.close_code)
-        # CancelledError is a BaseException in 3.8+, so this does not swallow
-        # cancellation — run() can still tear the task down cleanly.
+
         except Exception:
             logger.exception("reader_crashed conn=%s", self.conn_id)
             self.close(CloseCode.PROTOCOL_ERROR)
+
 
     async def _write_loop(self) -> None:
         """The sole owner of the socket's send side."""
