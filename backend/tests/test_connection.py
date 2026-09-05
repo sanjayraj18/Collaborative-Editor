@@ -163,7 +163,35 @@ async def test_oversized_frame_closes_4002():
 # --- steady state ---------------------------------------------------------
 
 
-async def test_update_is_echoed():
+async def test_frames_reach_the_on_frame_handler():
+    """The read loop hands frames to the handler; Phase 3 passes Room.submit."""
+    ws = FakeWebSocket()
+    ws.push(hello())
+    ws.push(Frame.data(FrameType.UPDATE, b"payload"))
+
+    seen: list[Frame] = []
+
+    async def echo(conn: Connection, frame: Frame) -> None:
+        seen.append(frame)
+        conn.send(frame)
+
+    conn = Connection(ws, user_id=USER, doc_id=DOC, role=Role.WRITER, on_frame=echo)
+    task = asyncio.create_task(conn.run())
+
+    await wait_for_sent(ws, 2)  # SERVER_HELLO then whatever the handler sent
+    conn.close(CloseCode.NORMAL)
+    await asyncio.wait_for(task, timeout=2)
+
+    assert [f.type for f in seen] == [FrameType.UPDATE]
+    assert seen[0].payload == b"payload"
+
+    out = ws.frames()
+    assert out[0].type is FrameType.SERVER_HELLO
+    assert out[1].payload == b"payload"
+
+
+async def test_the_default_handler_drops_frames():
+    """Without a handler a connection is inert — it must not echo by accident."""
     ws = FakeWebSocket()
     ws.push(hello())
     ws.push(Frame.data(FrameType.UPDATE, b"payload"))
@@ -171,14 +199,12 @@ async def test_update_is_echoed():
     conn = make_connection(ws)
     task = asyncio.create_task(conn.run())
 
-    await wait_for_sent(ws, 2)  # SERVER_HELLO then the echo
+    await wait_for_sent(ws, 1)  # SERVER_HELLO only
+    await asyncio.sleep(0.05)
     conn.close(CloseCode.NORMAL)
     await asyncio.wait_for(task, timeout=2)
 
-    out = ws.frames()
-    assert out[0].type is FrameType.SERVER_HELLO
-    assert out[1].type is FrameType.UPDATE
-    assert out[1].payload == b"payload"
+    assert len(ws.sent) == 1
 
 
 async def test_duplicate_hello_closes_4002():

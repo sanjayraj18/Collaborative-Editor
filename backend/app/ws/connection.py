@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
@@ -19,10 +20,16 @@ from app.protocol import (
 
 logger = logging.getLogger(__name__)
 
+FrameHandler = Callable[["Connection", Frame], Awaitable[None]]
+
+
+async def _drop(connection: "Connection", frame: Frame) -> None:
+    return None
+
 
 class Connection:
 
-    def __init__(self, websocket: WebSocket, user_id: str, doc_id: str, role: Role):
+    def __init__(self, websocket: WebSocket, user_id: str, doc_id: str, role: Role, on_frame: FrameHandler = _drop):
         self.conn_id = uuid.uuid4().hex[:16]
         self.user_id = user_id
         self.doc_id = doc_id
@@ -41,6 +48,9 @@ class Connection:
 
         self._close_code: CloseCode | None = None
         self._closing = asyncio.Event()
+
+        #this is to link the connection to the rooms or sending the client frame to the room
+        self._on_frame = on_frame
 
 
     async def _receive_raw(self) -> bytes:
@@ -184,7 +194,7 @@ class Connection:
                     raise ProtocolError("duplicate CLIENT_HELLO")
 
                 logger.info("recv conn=%s %r", self.conn_id, frame)
-                self.send(frame)
+                await self._on_frame(self, frame)
 
         except WebSocketDisconnect:
             self.close(CloseCode.GOING_AWAY)
