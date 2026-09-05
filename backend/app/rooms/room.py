@@ -1,8 +1,9 @@
 import asyncio
 import logging
-from app.ws.connection import Connection
-from app.protocol import Frame
+
 from app.config import settings
+from app.protocol import Frame
+from app.ws.connection import Connection
 
 logger = logging.getLogger(__name__)
 
@@ -16,10 +17,10 @@ class Room:
         self._task: asyncio.Task[None] | None = None
 
     @property
-    def member_count(self):
+    def member_count(self) -> int:
         return len(self._members)
 
-    
+
     def start(self) -> None:
         if self._task is None:
             self._task = asyncio.create_task(self._run(), name=f"room:{self.doc_id}")

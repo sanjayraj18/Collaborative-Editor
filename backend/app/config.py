@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     hello_timeout_seconds: float = 5.0
     slow_consumer_grace_seconds: float = 5.0
 
+    room_inbox_max_frames: int = 1024
     room_idle_ttl_seconds: int = 60
     resume_ring_size: int = 1024
 

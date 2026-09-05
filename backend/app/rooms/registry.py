@@ -26,11 +26,11 @@ class RoomRegistry:
 
             return room
 
-    async def release(self, room : Room) -> Room:
-        async with self._lock: 
+    async def release(self, room: Room) -> None:
+        async with self._lock:
             if room.member_count > 0:
                 return
-            
+
             if self._rooms.get(room.doc_id) is not room:
                 return
 
@@ -38,7 +38,7 @@ class RoomRegistry:
 
         await room.stop()
 
-    
+
     async def drain_all(self) -> None:
         async with self._lock:
             rooms = list(self._rooms.values())
