@@ -12,6 +12,7 @@ from app.middlewares.request_id import RequestIDMiddleware
 from app.routes.auth_routes import router as auth_router
 from app.routes.doc_routes import router as doc_router
 from app.ws.endpoint import router as ws_router
+from app.rooms.registry import registry
 
 setup_logging("DEBUG")
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     # Phase 7: open the Postgres pool here.
     yield
-    # Phase 3: drain rooms here on shutdown.
+    await registry.drain_all()
     logger.info("shutdown complete")
 
 

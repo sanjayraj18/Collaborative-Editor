@@ -8,6 +8,8 @@ Flags:
     --no-hello    skip CLIENT_HELLO, to watch the server close with 4002
     --silent      connect and send nothing, to watch the 5s HELLO deadline fire
     --flood       send continuously without reading, to watch backpressure evict us
+    --listen      stay connected and print everything the room sends us
+    --text=WORDS  payload to send instead of "hello"
 """
 
 import asyncio
@@ -59,8 +61,18 @@ async def _flood(ws, seconds: float, size: int = 64 * 1024) -> None:
     print(f"closed: code={ws.close_code} reason={ws.close_reason!r}")
 
 
+async def _listen(ws) -> None:
+    """Sit in the room and print whatever arrives. Ctrl-C to stop."""
+    print("listening — run another probe on the same doc to see its edits\n")
+    while True:
+        frame = decode(await ws.recv(), max_frame_bytes=MAX)
+        detail = frame.json() if frame.type in (FrameType.ACK,) else frame.payload[:60]
+        print(f"  <- {frame} {detail!r}")
+
+
 async def main(url: str, *, hello: bool = True, silent: bool = False,
-               flood: bool = False) -> None:
+               flood: bool = False, listen: bool = False,
+               text: str = "hello") -> None:
     print(f"connecting  origin={ORIGIN}")
 
     async with websockets.connect(url, origin=ORIGIN, max_queue=1) as ws:
@@ -90,15 +102,26 @@ async def main(url: str, *, hello: bool = True, silent: bool = False,
             await _flood(ws, settings.slow_consumer_grace_seconds + 4)
             return
 
-        payload = b"hello"
-        out = Frame.data(FrameType.UPDATE, payload)
+        if listen:
+            await _listen(ws)
+            return
+
+        # The room does not echo to the sender — it answers with an ACK
+        # carrying the sequence number it assigned. PROTOCOL.md §4.
+        payload = text.encode()
+        out = Frame.data(FrameType.UPDATE, payload, seq=1)
         print(f"  -> {out} {payload!r}")
         await ws.send(out.encode())
 
         back = decode(await asyncio.wait_for(ws.recv(), timeout=5), max_frame_bytes=MAX)
-        print(f"  <- {back} {back.payload!r}")
 
-        print("\nechoed correctly" if back.payload == payload else "\npayload did not match")
+        if back.type is FrameType.ACK:
+            acked = back.json()
+            print(f"  <- ACK client_seq={acked['client_seq']} server_seq={acked['server_seq']}")
+            print(f"\nacked at server_seq {acked['server_seq']}")
+        else:
+            print(f"  <- {back} {back.payload!r}")
+            print("\nexpected an ACK")
 
 
 if __name__ == "__main__":
@@ -112,7 +135,14 @@ if __name__ == "__main__":
             hello="--no-hello" not in sys.argv,
             silent="--silent" in sys.argv,
             flood="--flood" in sys.argv,
+            listen="--listen" in sys.argv,
+            text=next(
+                (a.split("=", 1)[1] for a in sys.argv if a.startswith("--text=")),
+                "hello",
+            ),
         ))
+    except KeyboardInterrupt:
+        print("\nstopped")
     except websockets.exceptions.InvalidStatus as exc:
         print(f"handshake rejected: {exc}")
     except websockets.exceptions.ConnectionClosed as exc:

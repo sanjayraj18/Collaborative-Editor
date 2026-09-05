@@ -2,7 +2,7 @@ import asyncio
 import logging
 
 from app.config import settings
-from app.protocol import Frame
+from app.protocol import CloseCode, Frame, FrameType
 from app.ws.connection import Connection
 
 logger = logging.getLogger(__name__)
@@ -16,9 +16,54 @@ class Room:
         )
         self._task: asyncio.Task[None] | None = None
 
+        self._seq = 0
+
+    @property
+    def current_seq(self) -> int:
+        return self._seq
+
     @property
     def member_count(self) -> int:
         return len(self._members)
+
+
+    def _dispatch(self, sender : Connection, frame : Frame) -> None:
+        if frame.type is FrameType.UPDATE:
+            self._handle_update(sender, frame)
+        elif frame.type is FrameType.AWARENESS:
+            self._relay(sender, frame)
+        else:
+            logger.debug(
+                "room_ignored doc=%s type=%s", self.doc_id, frame.type.name
+            )
+
+
+    def _handle_update(self , sender : Connection, frame : Frame) -> None:
+        if not sender.role.can_write:
+            logger.warning(
+                "room_reader_wrote doc=%s conn=%s role=%s",
+                self.doc_id, sender.conn_id, sender.role,
+            )
+            sender.close(CloseCode.UNAUTHORIZED)
+            return
+        self._seq += 1
+
+        out = Frame.data(FrameType.UPDATE, frame.payload, seq=self._seq)
+        self._relay(sender, out)
+
+        sender.send(
+            Frame.control(
+                FrameType.ACK,
+                {"client_seq": frame.seq, "server_seq": self._seq},
+            )
+        )
+
+
+    def _relay(self, sender: Connection, frame: Frame) -> None:
+        for member in self._members:
+            if member is sender:
+                continue
+            member.send(frame)
 
 
     def start(self) -> None:
@@ -40,7 +85,7 @@ class Room:
     async def _run(self) -> None:
         while True:
             sender, frame = await self._inbox.get()
-            self._fan_out(sender, frame)
+            self._dispatch(sender, frame)
 
 
     def join(self, connection : Connection) -> None:
@@ -56,9 +101,3 @@ class Room:
     async def submit(self, connection: Connection, frame: Frame) -> None:
         await self._inbox.put((connection, frame))
 
-
-    def _fan_out(self, sender: Connection, frame: Frame) -> None:
-        for member in self._members:
-            if member is sender:
-                continue
-            member.send(frame)

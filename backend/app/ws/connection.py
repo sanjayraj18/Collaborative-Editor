@@ -141,6 +141,7 @@ class Connection:
         with contextlib.suppress(RuntimeError):  # peer already closed it
             await self._ws.close(code=int(code))
 
+
     def send(self, frame: Frame) -> bool:
         if self._closing.is_set():
             return False
