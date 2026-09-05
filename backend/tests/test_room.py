@@ -10,6 +10,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from app.auth.roles import Role
+from app.config import settings
 from app.protocol import CloseCode, Frame, FrameType
 from app.rooms.registry import RoomRegistry
 from app.rooms.room import Room
@@ -216,7 +217,10 @@ async def test_release_keeps_a_room_that_still_has_members():
     await registry.drain_all()
 
 
-async def test_release_drops_an_empty_room():
+async def test_release_no_longer_drops_an_empty_room():
+    """Phase 4: eager release would rebuild the room on every tab refresh —
+    wasteful, and in Phase 8 it means re-reading a Postgres snapshot for
+    nothing. Only the reaper collects idle rooms now."""
     registry = RoomRegistry()
     room = await registry.acquire(DOC)
     member = FakeMember()
@@ -225,4 +229,39 @@ async def test_release_drops_an_empty_room():
 
     await registry.release(room)
 
-    assert registry.room_count == 0
+    assert registry.room_count == 1
+    await registry.drain_all()
+
+
+async def test_reaper_collects_a_room_only_after_its_ttl(monkeypatch):
+    monkeypatch.setattr(settings, "reaper_interval_seconds", 0.02)
+    monkeypatch.setattr(settings, "room_idle_ttl_seconds", 0.05)
+
+    registry = RoomRegistry()
+    room = await registry.acquire(DOC)
+    member = FakeMember()
+    room.join(member)
+    room.leave(member)  # idle clock starts now
+
+    registry.start_reaper()
+    try:
+        await wait_until(lambda: registry.room_count == 0, within=1.0)
+    finally:
+        await registry.stop_reaper()
+
+
+async def test_reaper_spares_a_room_that_is_still_occupied(monkeypatch):
+    monkeypatch.setattr(settings, "reaper_interval_seconds", 0.02)
+    monkeypatch.setattr(settings, "room_idle_ttl_seconds", 0.05)
+
+    registry = RoomRegistry()
+    room = await registry.acquire(DOC)
+    room.join(FakeMember())  # never leaves
+
+    registry.start_reaper()
+    try:
+        await asyncio.sleep(0.15)  # several sweeps, well past the TTL
+        assert registry.room_count == 1
+    finally:
+        await registry.stop_reaper()
+        await registry.drain_all()

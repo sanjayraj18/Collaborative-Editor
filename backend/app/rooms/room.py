@@ -16,6 +16,11 @@ class Room:
         )
         self._task: asyncio.Task[None] | None = None
 
+        self._ticker: asyncio.Task[None] | None = None
+        self._empty_since: float | None = None
+
+        self._permissions_version = 1
+
         self._seq = 0
 
     @property
@@ -27,8 +32,16 @@ class Room:
         return len(self._members)
 
 
-    def ticker(self):
-        pass
+    def _heartbeat(self) -> None:
+        """Not async, for the same reason as _dispatch: nothing here may await."""
+        for member in self._members:
+            if member.is_stale():
+                logger.info(
+                    "member_stale doc=%s conn=%s", self.doc_id, member.conn_id
+                )
+                member.close(CloseCode.GOING_AWAY)
+                continue
+            member.ping()
 
 
     def _dispatch(self, sender : Connection, frame : Frame) -> None:
@@ -40,6 +53,13 @@ class Room:
             logger.debug(
                 "room_ignored doc=%s type=%s", self.doc_id, frame.type.name
             )
+
+
+    async def _tick_loop(self) -> None:
+        """One timer per room, not one per connection."""
+        while True:
+            await asyncio.sleep(settings.ping_interval_seconds)
+            self._heartbeat()
 
 
     def _handle_update(self , sender : Connection, frame : Frame) -> None:
@@ -73,17 +93,38 @@ class Room:
     def start(self) -> None:
         if self._task is None:
             self._task = asyncio.create_task(self._run(), name=f"room:{self.doc_id}")
+            self._ticker = asyncio.create_task(
+                self._tick_loop(), name=f"tick:{self.doc_id}"
+            )
+            self._empty_since = asyncio.get_running_loop().time()
             logger.info("room_start doc=%s", self.doc_id)
 
 
     async def stop(self) -> None:
         if self._task is None:
             return
-        self._task.cancel()
-        await asyncio.gather(self._task, return_exceptions=True)
+
+        tasks = [t for t in (self._task, self._ticker) if t is not None]
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
 
         self._task = None
+        self._ticker = None
         logger.info("room_stop doc=%s", self.doc_id)
+
+
+    def apply_permissions_version(self, version: int) -> None:
+       
+        if version == self._permissions_version:
+            return
+
+        stale_version, self._permissions_version = self._permissions_version, version
+        logger.info("permissions_changed doc=%s %d -> %d", self.doc_id, stale_version, version)
+        
+        for member in list(self._members):
+            if not member.role.can_read:  
+                member.close(CloseCode.UNAUTHORIZED)
 
 
     async def _run(self) -> None:
@@ -94,12 +135,22 @@ class Room:
 
     def join(self, connection : Connection) -> None:
         self._members.add(connection)
+        self._empty_since = None
         logger.info("room_join doc=%s conn=%s members=%d",self.doc_id, connection.conn_id, len(self._members))
 
 
     def leave(self, connection : Connection) -> None:
         self._members.discard(connection)
+        if not self._members:
+            self._empty_since = asyncio.get_running_loop().time()
         logger.info("room_leave doc=%s conn=%s members=%d",self.doc_id, connection.conn_id, len(self._members))
+
+
+    def idle_seconds(self) -> float:
+        """How long this room has had no members. 0.0 while occupied."""
+        if self._empty_since is None:
+            return 0.0
+        return asyncio.get_running_loop().time() - self._empty_since
 
 
     async def submit(self, connection: Connection, frame: Frame) -> None:

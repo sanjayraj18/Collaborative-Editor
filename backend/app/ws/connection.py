@@ -1,9 +1,9 @@
 import asyncio
 import contextlib
 import logging
+import time
 import uuid
 from collections.abc import Awaitable, Callable
-import time
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketDisconnect
@@ -62,8 +62,8 @@ class Connection:
 
     def is_stale(self) -> bool:
         if self._last_seen_at is None:
-            return False   
-        
+            return False
+
         elapsed = asyncio.get_running_loop().time() - self._last_seen_at
         return elapsed > settings.pong_timeout_seconds
 
@@ -125,7 +125,7 @@ class Connection:
             logger.warning("hello_timeout conn=%s", self.conn_id)
             await self._ws.close(code=CloseCode.PROTOCOL_ERROR)
             return
-        
+
         except ProtocolError as exc:
             logger.warning(
                 "handshake_failed conn=%s detail=%s", self.conn_id, exc.message
@@ -207,13 +207,13 @@ class Connection:
 
 
     async def _read_loop(self) -> None:
-       
+
         try:
             while True:
                 raw = await self._receive_raw()
                 frame = decode(raw, max_frame_bytes=settings.max_frame_bytes)
 
-                self._last_seen_at = asyncio.get_running_loop().time() 
+                self._last_seen_at = asyncio.get_running_loop().time()
 
                 if frame.type is FrameType.CLIENT_HELLO:
                     raise ProtocolError("duplicate CLIENT_HELLO")

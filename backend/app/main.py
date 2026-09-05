@@ -9,10 +9,11 @@ from app.core.logging_config import setup_logging
 from app.middlewares.exception_handler import register_exception_handlers
 from app.middlewares.logging import LoggingMiddleware
 from app.middlewares.request_id import RequestIDMiddleware
+from app.rooms import permissions
+from app.rooms.registry import registry
 from app.routes.auth_routes import router as auth_router
 from app.routes.doc_routes import router as doc_router
 from app.ws.endpoint import router as ws_router
-from app.rooms.registry import registry
 
 setup_logging("DEBUG")
 logger = logging.getLogger(__name__)
@@ -26,8 +27,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.app_env,
         settings.allowed_origins,
     )
-    # Phase 7: open the Postgres pool here.
+
+    registry.start_reaper()
+    permissions.start()
+    logger.info("startup env=%s origins=%s", settings.app_env, settings.allowed_origins)
     yield
+    await permissions.stop()
     await registry.drain_all()
     logger.info("shutdown complete")
 
