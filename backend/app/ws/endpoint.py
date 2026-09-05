@@ -13,6 +13,7 @@ from app.auth.tickets import TicketError, verify
 from app.config import get_settings
 from app.database.database import SessionLocal
 from app.protocol import CloseCode
+from app.rooms.registry import registry
 from app.ws.connection import Connection
 
 router = APIRouter()
@@ -77,6 +78,16 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         role,
     )
 
+    room = await registry.acquire(claims.doc_id)
 
-    connection = Connection(websocket, user_id=claims.user_id, doc_id=claims.doc_id, role=role)
-    await connection.run()
+    connection = Connection(websocket, user_id=claims.user_id, doc_id=claims.doc_id,role=role, on_frame=room.submit)
+
+    room.join(connection)
+    try:
+        await connection.run()
+    finally:
+        # Runs on every exit — clean close, protocol error, eviction, crash.
+        # Skipping it leaks a dead connection into the member set.
+        room.leave(connection)
+        await registry.release(room)
+

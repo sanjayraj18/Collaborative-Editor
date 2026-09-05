@@ -62,6 +62,7 @@ class Connection:
             raise ProtocolError("expected a binary frame, got text")
         return raw
 
+
     async def _handshake(self) -> None:
         """Exchange CLIENT_HELLO for SERVER_HELLO. PROTOCOL.md §5 step 3."""
         raw = await asyncio.wait_for(
@@ -99,6 +100,7 @@ class Connection:
                 },
             ).encode()
         )
+
 
     async def run(self) -> None:
         try:
