@@ -75,6 +75,17 @@ class ProtocolError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class Frame:
+    
+    """One wire frame. See PROTOCOL.md for the normative spec.
+
+    `seq` on an outbound UPDATE is the room's server_seq — assigned once per
+    *broadcast*, not once per inbound client frame. Phase 5 coalesces several
+    client UPDATEs arriving within update_coalesce_ms into a single merged
+    Yjs update and a single server_seq. A client's own edit is never echoed
+    back; it learns where it landed from the ACK's server_seq instead, which
+    may or may not match the seq of the next UPDATE it receives.
+    """
+
     type: FrameType
     seq: int = 0
     payload: bytes = field(default=b"")

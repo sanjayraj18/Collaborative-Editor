@@ -1,4 +1,4 @@
-#the connection was authorized once, and nothing ever re-checks 
+#the connection was authorized once, and nothing ever re-checks
 #the room owns the members, so let it periodically query the database "is everyone still allowed?" and kick out anyone who isn't.
 
 #But you can't. This is the ironclad invariant from Phase 3: the room task must never await Postgres. Why? The room's single task processes every edit for the document one at a time. If it stopped to wait on a database query,
@@ -8,10 +8,9 @@ import asyncio
 import logging
 
 from app.auth.authz import get_permissions_version
-from app.database.database import SessionLocal
 from app.config import settings
+from app.database.database import SessionLocal
 from app.rooms.registry import registry
-
 
 logger = logging.getLogger(__name__)
 

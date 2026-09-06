@@ -1,6 +1,8 @@
 import asyncio
 import logging
 
+from pycrdt import Doc
+
 from app.config import settings
 from app.protocol import CloseCode, Frame, FrameType
 from app.ws.connection import Connection
@@ -22,6 +24,8 @@ class Room:
         self._permissions_version = 1
 
         self._seq = 0
+
+        self._doc: Doc = Doc()
 
     @property
     def current_seq(self) -> int:
@@ -47,12 +51,38 @@ class Room:
     def _dispatch(self, sender : Connection, frame : Frame) -> None:
         if frame.type is FrameType.UPDATE:
             self._handle_update(sender, frame)
+        elif frame.type is FrameType.SYNC_STEP1:
+            self._handle_sync_step1(sender, frame)
+        elif frame.type is FrameType.SYNC_STEP2:
+            self._handle_sync_step2(sender, frame)
         elif frame.type is FrameType.AWARENESS:
             self._relay(sender, frame)
         else:
             logger.debug(
                 "room_ignored doc=%s type=%s", self.doc_id, frame.type.name
             )
+
+
+    def _handle_sync_step1(self, sender : Connection, frame : Frame) -> None:
+        """Client sent its state vector — answer with what it's missing."""
+        try:
+            diff = self._doc.get_update(frame.payload)
+        except ValueError:
+            logger.warning("room_bad_state_vector doc=%s conn=%s", self.doc_id, sender.conn_id)
+            sender.close(CloseCode.PROTOCOL_ERROR)
+            return
+        sender.send(Frame.data(FrameType.SYNC_STEP2, diff))
+
+
+    def _handle_sync_step2(self, sender: Connection, frame: Frame) -> None:
+        """Client sent a diff — either answering our SYNC_STEP1, or its own
+        locally-stored state offered up front."""
+
+        try:
+            self._doc.apply_update(frame.payload)
+        except ValueError:
+            logger.warning("room_bad_sync_step2 doc=%s conn=%s", self.doc_id, sender.conn_id)
+            sender.close(CloseCode.PROTOCOL_ERROR)
 
 
     async def _tick_loop(self) -> None:
@@ -70,8 +100,15 @@ class Room:
             )
             sender.close(CloseCode.UNAUTHORIZED)
             return
-        self._seq += 1
 
+        try:
+            self._doc.apply_update(frame.payload)
+        except ValueError:
+            logger.warning("room_bad_update doc=%s conn=%s", self.doc_id, sender.conn_id)
+            sender.close(CloseCode.PROTOCOL_ERROR)
+            return
+
+        self._seq += 1
         out = Frame.data(FrameType.UPDATE, frame.payload, seq=self._seq)
         self._relay(sender, out)
 
@@ -115,15 +152,15 @@ class Room:
 
 
     def apply_permissions_version(self, version: int) -> None:
-       
+
         if version == self._permissions_version:
             return
 
         stale_version, self._permissions_version = self._permissions_version, version
         logger.info("permissions_changed doc=%s %d -> %d", self.doc_id, stale_version, version)
-        
+
         for member in list(self._members):
-            if not member.role.can_read:  
+            if not member.role.can_read:
                 member.close(CloseCode.UNAUTHORIZED)
 
 
@@ -136,6 +173,7 @@ class Room:
     def join(self, connection : Connection) -> None:
         self._members.add(connection)
         self._empty_since = None
+        connection.send(Frame.data(FrameType.SYNC_STEP1, self._doc.get_state()))
         logger.info("room_join doc=%s conn=%s members=%d",self.doc_id, connection.conn_id, len(self._members))
 
 

@@ -17,17 +17,25 @@ from app.protocol import CloseCode, Frame, FrameType
 from app.rooms.room import Room
 from app.ws.connection import Connection
 from tests.test_connection import FakeWebSocket, hello, make_connection, wait_for_sent
+from tests.test_room import make_update
 
 settings = get_settings()
 
 
 class RoleStub:
-    """The one thing apply_permissions_version touches on a member."""
+    """The one thing apply_permissions_version touches on a member.
+
+    Needs send() now too: Room.join() sends a SYNC_STEP1 to every joiner,
+    real Connection or not.
+    """
 
     def __init__(self, role: Role) -> None:
         self.role = role
         self.conn_id = "stub"
         self.close_code: CloseCode | None = None
+
+    def send(self, frame: Frame) -> bool:
+        return True
 
     def close(self, code: CloseCode) -> None:
         if self.close_code is None:
@@ -123,9 +131,10 @@ async def test_heartbeat_pings_a_live_member(monkeypatch):
     task = asyncio.create_task(conn.run())
 
     await wait_for_sent(ws, 1)  # SERVER_HELLO
-    await wait_for_sent(ws, 2, within=1.0)  # the heartbeat's PING
+    # index 1 is SYNC_STEP1 from room.join(); the heartbeat's PING is next.
+    await wait_for_sent(ws, 3, within=1.0)
 
-    assert ws.frames()[1].type is FrameType.PING
+    assert ws.frames()[2].type is FrameType.PING
 
     conn.close(CloseCode.NORMAL)
     await asyncio.wait_for(task, timeout=2)
@@ -171,9 +180,9 @@ async def test_a_talkative_member_is_never_evicted(monkeypatch):
 
     await wait_for_sent(ws, 1)
 
-    for _ in range(5):
+    for i in range(5):
         await asyncio.sleep(0.03)  # less than the pong deadline, each time
-        ws.push(Frame.data(FrameType.UPDATE, b"keep typing"))
+        ws.push(Frame.data(FrameType.UPDATE, make_update(f"keep typing {i}")))
 
     await asyncio.sleep(0.03)
     assert task.done() is False  # still up after 0.15s against a 0.06s deadline

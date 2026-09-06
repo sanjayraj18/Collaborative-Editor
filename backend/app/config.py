@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     reaper_interval_seconds: int = 10
     permission_check_seconds: int = 30
 
+    update_coalesce_ms: int = 20
+    awareness_coalesce_ms: int = 100
+
     resume_ring_size: int = 1024
 
     database_url: str

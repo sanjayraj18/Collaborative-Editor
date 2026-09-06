@@ -9,6 +9,8 @@ Connection's own behaviour is covered in test_connection.py.
 import asyncio
 from contextlib import asynccontextmanager
 
+from pycrdt import Doc, Text
+
 from app.auth.roles import Role
 from app.config import settings
 from app.protocol import CloseCode, Frame, FrameType
@@ -16,6 +18,22 @@ from app.rooms.registry import RoomRegistry
 from app.rooms.room import Room
 
 DOC = "22222222-2222-2222-2222-222222222222"
+
+
+def make_update(text: str = "edit") -> bytes:
+    """A self-contained, valid Yjs update representing one text insert.
+
+    Each call uses an independent Doc, so distinct calls yield distinct but
+    still-mergeable updates — exactly what a real client emits per keystroke.
+    Room._handle_update now calls pycrdt's apply_update on every payload, so
+    arbitrary bytes (the old b"edit") are rejected with a ValueError and the
+    sender closed 4002.
+    """
+    doc = Doc()
+    doc["content"] = Text()
+    with doc.transaction():
+        doc["content"] += text
+    return doc.get_update()
 
 
 class FakeMember:
@@ -34,6 +52,15 @@ class FakeMember:
     def close(self, code: CloseCode) -> None:
         if self.close_code is None:
             self.close_code = code
+
+
+def non_sync(member: FakeMember) -> list[Frame]:
+    """Everything a member received except the SYNC_STEP1 every join() sends.
+
+    Phase 5: joining now triggers a sync handshake, so every member's very
+    first received frame is SYNC_STEP1 regardless of what the test does next.
+    """
+    return [f for f in member.received if f.type is not FrameType.SYNC_STEP1]
 
 
 def update(payload: bytes, client_seq: int = 1) -> Frame:
@@ -69,13 +96,14 @@ async def test_update_reaches_every_member_but_the_sender():
         for member in (a, b, c):
             room.join(member)
 
-        await room.submit(a, update(b"edit"))
-        await wait_until(lambda: bool(b.received) and bool(c.received))
+        payload = make_update()
+        await room.submit(a, update(payload))
+        await wait_until(lambda: non_sync(b) and non_sync(c))
 
-        assert [f.payload for f in b.received] == [b"edit"]
-        assert [f.payload for f in c.received] == [b"edit"]
+        assert [f.payload for f in non_sync(b)] == [payload]
+        assert [f.payload for f in non_sync(c)] == [payload]
         # The sender gets an ACK, never a copy of what it already has.
-        assert [f.type for f in a.received] == [FrameType.ACK]
+        assert [f.type for f in non_sync(a)] == [FrameType.ACK]
 
 
 async def test_leaving_stops_delivery():
@@ -85,10 +113,10 @@ async def test_leaving_stops_delivery():
         room.join(b)
         room.leave(b)
 
-        await room.submit(a, update(b"edit"))
-        await wait_until(lambda: bool(a.received))  # the ACK
+        await room.submit(a, update(make_update()))
+        await wait_until(lambda: non_sync(a))  # the ACK
 
-        assert b.received == []
+        assert non_sync(b) == []
         assert room.member_count == 1
 
 
@@ -101,15 +129,15 @@ async def test_sequence_is_gapless_and_ordered():
         room.join(writer)
         room.join(watcher)
 
-        for i in range(1, 51):
-            await room.submit(writer, update(f"edit-{i}".encode(), client_seq=i))
+        payloads = [make_update(f"edit-{i}") for i in range(1, 51)]
+        for i, payload in enumerate(payloads, start=1):
+            await room.submit(writer, update(payload, client_seq=i))
 
-        await wait_until(lambda: len(watcher.received) == 50)
+        await wait_until(lambda: len(non_sync(watcher)) == 50)
 
-        assert [f.seq for f in watcher.received] == list(range(1, 51))
-        assert [f.payload for f in watcher.received] == [
-            f"edit-{i}".encode() for i in range(1, 51)
-        ]
+        received = non_sync(watcher)
+        assert [f.seq for f in received] == list(range(1, 51))
+        assert [f.payload for f in received] == payloads
         assert room.current_seq == 50
 
 
@@ -119,11 +147,11 @@ async def test_ack_maps_client_seq_to_server_seq():
         writer = FakeMember()
         room.join(writer)
 
-        await room.submit(writer, update(b"one", client_seq=17))
-        await room.submit(writer, update(b"two", client_seq=18))
-        await wait_until(lambda: len(writer.received) == 2)
+        await room.submit(writer, update(make_update("one"), client_seq=17))
+        await room.submit(writer, update(make_update("two"), client_seq=18))
+        await wait_until(lambda: len(non_sync(writer)) == 2)
 
-        assert [f.json() for f in writer.received] == [
+        assert [f.json() for f in non_sync(writer)] == [
             {"client_seq": 17, "server_seq": 1},
             {"client_seq": 18, "server_seq": 2},
         ]
@@ -139,11 +167,13 @@ async def test_reader_sending_an_update_is_closed_4003():
         room.join(reader)
         room.join(writer)
 
+        # Content never reaches apply_update — the role check runs first —
+        # so arbitrary bytes are fine here, unlike everywhere else in this file.
         await room.submit(reader, update(b"not allowed"))
         await wait_until(lambda: reader.close_code is not None)
 
         assert reader.close_code == CloseCode.UNAUTHORIZED
-        assert writer.received == []  # nothing was broadcast
+        assert non_sync(writer) == []  # nothing was broadcast
         assert room.current_seq == 0  # and no sequence number was burned
 
 
@@ -158,12 +188,13 @@ async def test_awareness_is_relayed_but_never_sequenced():
         room.join(b)
 
         await room.submit(a, Frame.data(FrameType.AWARENESS, b"cursor"))
-        await wait_until(lambda: bool(b.received))
+        await wait_until(lambda: non_sync(b))
 
-        assert b.received[0].type is FrameType.AWARENESS
-        assert b.received[0].seq == 0
+        received = non_sync(b)
+        assert received[0].type is FrameType.AWARENESS
+        assert received[0].seq == 0
         assert room.current_seq == 0
-        assert a.received == []  # no ACK for awareness
+        assert non_sync(a) == []  # no ACK for awareness
 
 
 async def test_unhandled_frames_are_dropped_not_broadcast():
@@ -174,10 +205,10 @@ async def test_unhandled_frames_are_dropped_not_broadcast():
         room.join(b)
 
         await room.submit(a, Frame.control(FrameType.PONG, {"t": 1}))
-        await room.submit(a, update(b"after"))
-        await wait_until(lambda: bool(b.received))
+        await room.submit(a, update(make_update("after")))
+        await wait_until(lambda: non_sync(b))
 
-        assert [f.type for f in b.received] == [FrameType.UPDATE]
+        assert [f.type for f in non_sync(b)] == [FrameType.UPDATE]
 
 
 # --- registry -------------------------------------------------------------
