@@ -6,6 +6,8 @@ from fastapi import FastAPI
 
 from app.config import get_settings
 from app.core.logging_config import setup_logging
+from app.middlewares.cors import CORSMiddleware
+from app.config import settings
 from app.middlewares.exception_handler import register_exception_handlers
 from app.middlewares.logging import LoggingMiddleware
 from app.middlewares.request_id import RequestIDMiddleware
@@ -38,6 +40,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Collab", version="0.1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.allowed_origins,
+    allow_credentials=True,   # required — the refresh_token cookie won't be sent otherwise
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(RequestIDMiddleware)
 
