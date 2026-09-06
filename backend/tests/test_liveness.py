@@ -32,6 +32,8 @@ class RoleStub:
     def __init__(self, role: Role) -> None:
         self.role = role
         self.conn_id = "stub"
+        self.client_id = 0
+        self.last_seq: int | None = None
         self.close_code: CloseCode | None = None
 
     def send(self, frame: Frame) -> bool:

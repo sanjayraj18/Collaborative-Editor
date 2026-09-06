@@ -46,9 +46,19 @@ def make_awareness_update(state: dict) -> bytes:
 class FakeMember:
     """The slice of Connection that Room actually uses."""
 
-    def __init__(self, role: Role = Role.WRITER, conn_id: str = "conn") -> None:
+    def __init__(
+        self,
+        role: Role = Role.WRITER,
+        conn_id: str = "conn",
+        client_id: int = 0,
+        last_seq: int | None = None,
+    ) -> None:
         self.role = role
         self.conn_id = conn_id
+        self.client_id = client_id
+        # None -> join() always falls back to a full sync, matching every
+        # pre-Phase-6 test's behavior unless a test opts into resume.
+        self.last_seq = last_seq
         self.received: list[Frame] = []
         self.close_code: CloseCode | None = None
 

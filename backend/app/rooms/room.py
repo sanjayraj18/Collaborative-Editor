@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from collections import deque
 
 from pycrdt import Awareness, Doc
 
@@ -36,6 +37,9 @@ class Room:
         self._awareness = Awareness(Doc())
         self._awareness_dirty = False
         self._awareness_handle: asyncio.TimerHandle | None = None
+
+        self._ring : deque[Frame] = deque(maxlen=settings.resume_ring_size)
+        self._last_client_seq: dict[int, int] = {}
 
 
     @property
@@ -105,6 +109,14 @@ class Room:
             sender.close(CloseCode.UNAUTHORIZED)
             return
 
+        last_seen = self._last_client_seq.get(sender.client_id)
+        if last_seen is not None and frame.seq <= last_seen:
+            logger.debug(
+                "room_duplicate_update doc=%s conn=%s client_seq=%d",
+                self.doc_id, sender.conn_id, frame.seq,
+            )
+            return
+
 
         if self._batch_state_before is None:
             self._batch_state_before = self._doc.get_state()
@@ -120,6 +132,7 @@ class Room:
             sender.close(CloseCode.PROTOCOL_ERROR)
             return
 
+        self._last_client_seq[sender.client_id] = frame.seq
         self._pending_acks.append((sender, frame.seq))
         self._batch_contributors.add(sender)
 
@@ -141,6 +154,7 @@ class Room:
         merged = self._doc.get_update(state_before)
         self._seq += 1
         out = Frame.data(FrameType.UPDATE, merged, seq=self._seq)
+        self._ring.append(out)
 
         solo = next(iter(contributors)) if len(contributors) == 1 else None
         for member in self._members:
@@ -251,25 +265,48 @@ class Room:
             self._dispatch(sender, frame)
 
 
-    def join(self, connection : Connection) -> None:
+    def _plan_resume(self, last_seq: int | None) -> tuple[bool, list[Frame]]:
+
+        if last_seq is None or last_seq > self._seq:
+            return False , []
+        if last_seq == self._seq:
+            return True, []
+
+        oldest_buffered = self._ring[0].seq if self._ring else self._seq + 1
+        if last_seq + 1 < oldest_buffered:
+            return False,[]
+
+        return True, [f for f in self._ring if f.seq > last_seq]
+
+
+    def join(self, connection : Connection) -> tuple[bool, int]:
         self._members.add(connection)
         self._empty_since = None
-        connection.send(Frame.data(FrameType.SYNC_STEP1, self._doc.get_state()))
 
-        known = [
-            cid for cid in self._awareness.states if cid != self._awareness.client_id
-        ]
-        if known:
-            connection.send(
-                Frame.data(
-                    FrameType.AWARENESS, self._awareness.encode_awareness_update(known)
+        resumed, replay = self._plan_resume(connection.last_seq)
+
+        if resumed:
+            for frame in replay:
+                connection.send(frame)
+        else:
+            connection.send(Frame.data(FrameType.SYNC_STEP1, self._doc.get_state()))
+
+            known = [
+                cid for cid in self._awareness.states if cid != self._awareness.client_id
+            ]
+            if known:
+                connection.send(
+                    Frame.data(
+                        FrameType.AWARENESS, self._awareness.encode_awareness_update(known)
+                    )
                 )
-            )
 
         logger.info(
             "room_join doc=%s conn=%s members=%d",
             self.doc_id, connection.conn_id, len(self._members),
         )
+
+        return resumed, self._seq
 
 
 

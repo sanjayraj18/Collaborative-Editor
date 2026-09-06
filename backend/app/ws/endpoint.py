@@ -80,9 +80,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
     room = await registry.acquire(claims.doc_id)
 
-    connection = Connection(websocket, user_id=claims.user_id, doc_id=claims.doc_id,role=role, on_frame=room.submit)
+    connection = Connection(websocket, user_id=claims.user_id, doc_id=claims.doc_id,role=role, on_frame=room.submit, on_hello=room.join)
 
-    room.join(connection)
     try:
         await connection.run()
     finally:

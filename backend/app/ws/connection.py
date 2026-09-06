@@ -22,15 +22,19 @@ from app.protocol import (
 logger = logging.getLogger(__name__)
 
 FrameHandler = Callable[["Connection", Frame], Awaitable[None]]
+HelloHandler = Callable[["Connection"],  tuple[bool, int]]
 
 
 async def _drop(connection: "Connection", frame: Frame) -> None:
     return None
 
+def _default_on_hello(connection: "Connection") -> tuple[bool, int]:
+    return False, 0
+
 
 class Connection:
 
-    def __init__(self, websocket: WebSocket, user_id: str, doc_id: str, role: Role, on_frame: FrameHandler = _drop):
+    def __init__(self, websocket: WebSocket, user_id: str, doc_id: str, role: Role, on_frame: FrameHandler = _drop, on_hello: HelloHandler = _default_on_hello):
         self.conn_id = uuid.uuid4().hex[:16]
         self.user_id = user_id
         self.doc_id = doc_id
@@ -54,6 +58,7 @@ class Connection:
 
         #this is to link the connection to the rooms or sending the client frame to the room
         self._on_frame = on_frame
+        self._on_hello = on_hello
 
 
     def ping(self) -> None:
@@ -102,6 +107,8 @@ class Connection:
         # Sent directly, not through the queue — the writer task does not exist
         # yet, so there is no second sender to race with. This is the only place
         # in the class allowed to touch send_bytes outside _write_loop.
+        resumed, server_seq = self._on_hello(self)
+
         await self._ws.send_bytes(
             Frame.control(
                 FrameType.SERVER_HELLO,
@@ -109,8 +116,8 @@ class Connection:
                     "conn_id": self.conn_id,
                     "doc_id": self.doc_id,
                     "role": str(self.role),
-                    "server_seq": 0,     # Phase 3: the room's current sequence
-                    "resumed": False,    # Phase 6: true when replaying
+                    "server_seq": server_seq,     # Phase 3: the room's current sequence
+                    "resumed": resumed,    # Phase 6: true when replaying
                     "ping_interval_ms": settings.ping_interval_seconds * 1000,
                 },
             ).encode()

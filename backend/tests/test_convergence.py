@@ -30,9 +30,14 @@ class ConvergingMember:
     its final document can be compared against the room's and against other
     members' — real convergence, not just "some bytes arrived somewhere."""
 
-    def __init__(self, conn_id: str) -> None:
+    def __init__(self, conn_id: str, client_id: int) -> None:
         self.role = Role.WRITER
         self.conn_id = conn_id
+        # Dedupe in Room._handle_update keys on client_id, so two concurrent
+        # writers must not share one — that would make the room treat the
+        # second writer's ops as resends of the first's and silently drop them.
+        self.client_id = client_id
+        self.last_seq: int | None = None
         self.close_code: CloseCode | None = None
         self.doc = Doc()
         self.doc["content"] = Text()
@@ -80,8 +85,8 @@ async def test_two_concurrent_writers_converge_after_500_edits_each():
     """Phase 5's exit criterion: two clients hammer one document concurrently;
     both end up byte-identical to the room and to each other."""
     async with running_room("doc-convergence") as room:
-        alice = ConvergingMember("alice")
-        bob = ConvergingMember("bob")
+        alice = ConvergingMember("alice", client_id=1)
+        bob = ConvergingMember("bob", client_id=2)
         room.join(alice)
         room.join(bob)
 
@@ -110,7 +115,7 @@ async def test_convergence_is_independent_of_arrival_order():
     order they actually arrived and must still reach the identical state —
     proving the merged updates are commutative, not just individually valid."""
     async with running_room("doc-convergence-order") as room:
-        alice = ConvergingMember("alice")
+        alice = ConvergingMember("alice", client_id=1)
         room.join(alice)
 
         await _hammer(room, alice, seed=3, count=100)
