@@ -25,6 +25,22 @@ ALPHABET = "abcdefghijklmnopqrstuvwxyz "
 EDITS_PER_WRITER = 500
 
 
+EMPTY_DIFF = Doc().get_update()
+
+
+def assert_converged(a: Doc, b: Doc) -> None:
+    """Two docs are converged iff neither has an update the other lacks.
+
+    Raw get_state() byte-equality is NOT this property: pycrdt's state
+    vector encoding can legitimately differ between two replicas holding
+    byte-identical content (confirmed empirically — 15/60 runs of this exact
+    scenario had non-identical get_state() vectors with 0/60 actual content
+    or update gaps). Asserting on it produces a real flake, not a real bug.
+    """
+    assert a.get_update(b.get_state()) == EMPTY_DIFF, "b is missing an update a has"
+    assert b.get_update(a.get_state()) == EMPTY_DIFF, "a is missing an update b has"
+
+
 class ConvergingMember:
     """A stub member that actually applies whatever the room broadcasts, so
     its final document can be compared against the room's and against other
@@ -98,12 +114,8 @@ async def test_two_concurrent_writers_converge_after_500_edits_each():
         # Let any coalescing window still in flight finish flushing.
         await asyncio.sleep(settings.update_coalesce_ms / 1000 + 0.2)
 
-        room_state = room._doc.get_state()
-        alice_state = alice.doc.get_state()
-        bob_state = bob.doc.get_state()
-
-        assert alice_state == room_state
-        assert bob_state == room_state
+        assert_converged(alice.doc, room._doc)
+        assert_converged(bob.doc, room._doc)
 
         room_text = str(room._doc.get("content", type=Text))
         assert room_text == alice.text() == bob.text()
@@ -127,5 +139,5 @@ async def test_convergence_is_independent_of_arrival_order():
         diff = room._doc.get_update(late_peer.get_state())
         late_peer.apply_update(diff)
 
-        assert late_peer.get_state() == room._doc.get_state()
+        assert_converged(late_peer, room._doc)
         assert str(late_peer.get("content", type=Text)) == alice.text()
