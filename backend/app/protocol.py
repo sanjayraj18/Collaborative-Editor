@@ -75,7 +75,7 @@ class ProtocolError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class Frame:
-    
+
     """One wire frame. See PROTOCOL.md for the normative spec.
 
     `seq` on an outbound UPDATE is the room's server_seq — assigned once per

@@ -9,7 +9,7 @@ Connection's own behaviour is covered in test_connection.py.
 import asyncio
 from contextlib import asynccontextmanager
 
-from pycrdt import Doc, Text
+from pycrdt import Awareness, Doc, Text
 
 from app.auth.roles import Role
 from app.config import settings
@@ -34,6 +34,13 @@ def make_update(text: str = "edit") -> bytes:
     with doc.transaction():
         doc["content"] += text
     return doc.get_update()
+
+
+def make_awareness_update(state: dict) -> bytes:
+    """A self-contained y-protocols awareness message for one client."""
+    peer = Awareness(Doc())
+    peer.set_local_state(state)
+    return peer.encode_awareness_update([peer.client_id])
 
 
 class FakeMember:
@@ -123,7 +130,10 @@ async def test_leaving_stops_delivery():
 # --- sequencing -----------------------------------------------------------
 
 
-async def test_sequence_is_gapless_and_ordered():
+async def test_many_edits_in_one_window_coalesce_but_acks_stay_1to1():
+    """Phase 5: 50 ops fired with no delay between them land in the same
+    ~20ms window and merge into far fewer broadcasts — but every op still
+    gets exactly one ACK, in order, naming where it actually landed."""
     async with running_room() as room:
         writer, watcher = FakeMember(conn_id="w"), FakeMember(conn_id="x")
         room.join(writer)
@@ -133,21 +143,46 @@ async def test_sequence_is_gapless_and_ordered():
         for i, payload in enumerate(payloads, start=1):
             await room.submit(writer, update(payload, client_seq=i))
 
-        await wait_until(lambda: len(non_sync(watcher)) == 50)
+        await wait_until(lambda: len(non_sync(writer)) == 50)
+        acks = [f.json() for f in non_sync(writer)]
+        assert [a["client_seq"] for a in acks] == list(range(1, 51))
 
-        received = non_sync(watcher)
-        assert [f.seq for f in received] == list(range(1, 51))
-        assert [f.payload for f in received] == payloads
-        assert room.current_seq == 50
+        await asyncio.sleep(settings.update_coalesce_ms / 1000 + 0.05)
+        broadcasts = non_sync(watcher)
+        assert len(broadcasts) < 50  # actually coalesced, not one-per-op
+
+        seqs = [f.seq for f in broadcasts]
+        assert seqs == list(range(1, len(seqs) + 1))  # still gapless from 1
+        assert acks[-1]["server_seq"] == seqs[-1]
+        assert room.current_seq == seqs[-1]
 
 
-async def test_ack_maps_client_seq_to_server_seq():
-    """PROTOCOL.md §4: the ACK tells a client where its edit landed."""
+async def test_ack_maps_client_seq_to_server_seq_within_one_window():
+    """Two ops merged into one flush both ACK to the same server_seq — the
+    PROTOCOL.md §4 amendment Phase 5 coalescing requires."""
     async with running_room() as room:
         writer = FakeMember()
         room.join(writer)
 
         await room.submit(writer, update(make_update("one"), client_seq=17))
+        await room.submit(writer, update(make_update("two"), client_seq=18))
+        await wait_until(lambda: len(non_sync(writer)) == 2)
+
+        assert [f.json() for f in non_sync(writer)] == [
+            {"client_seq": 17, "server_seq": 1},
+            {"client_seq": 18, "server_seq": 1},
+        ]
+
+
+async def test_ack_maps_client_seq_to_server_seq_across_windows():
+    """Ops separated by a full window each get their own server_seq,
+    still gapless — the un-batched case still works as before."""
+    async with running_room() as room:
+        writer = FakeMember()
+        room.join(writer)
+
+        await room.submit(writer, update(make_update("one"), client_seq=17))
+        await asyncio.sleep(settings.update_coalesce_ms / 1000 + 0.05)
         await room.submit(writer, update(make_update("two"), client_seq=18))
         await wait_until(lambda: len(non_sync(writer)) == 2)
 
@@ -181,20 +216,35 @@ async def test_reader_sending_an_update_is_closed_4003():
 
 
 async def test_awareness_is_relayed_but_never_sequenced():
-    """Presence is not document state — it stays out of the sequence space."""
+    """Presence is not document state — it stays out of the sequence space.
+
+    Phase 5: the room re-encodes awareness through its own Awareness merge
+    point, so the outbound bytes are not the same bytes that came in — this
+    checks the state actually survives that round trip.
+    """
     async with running_room() as room:
         a, b = FakeMember(conn_id="a"), FakeMember(conn_id="b")
         room.join(a)
         room.join(b)
 
-        await room.submit(a, Frame.data(FrameType.AWARENESS, b"cursor"))
+        payload = make_awareness_update({"cursor": 3, "name": "alice"})
+        await room.submit(a, Frame.data(FrameType.AWARENESS, payload))
         await wait_until(lambda: non_sync(b))
 
         received = non_sync(b)
         assert received[0].type is FrameType.AWARENESS
         assert received[0].seq == 0
         assert room.current_seq == 0
-        assert non_sync(a) == []  # no ACK for awareness
+
+        # Unlike updates, awareness broadcasts to everyone including the
+        # sender — real Yjs servers do the same, since an awareness client
+        # already handles seeing its own state reflected back. What actually
+        # matters is that it never produces an ACK, which is UPDATE-only.
+        assert [f.type for f in non_sync(a)] == [FrameType.AWARENESS]
+
+        peer = Awareness(Doc())
+        peer.apply_awareness_update(received[0].payload, origin="test")
+        assert {"cursor": 3, "name": "alice"} in peer.states.values()
 
 
 async def test_unhandled_frames_are_dropped_not_broadcast():

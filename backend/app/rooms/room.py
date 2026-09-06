@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from pycrdt import Doc
+from pycrdt import Awareness, Doc
 
 from app.config import settings
 from app.protocol import CloseCode, Frame, FrameType
@@ -26,6 +26,17 @@ class Room:
         self._seq = 0
 
         self._doc: Doc = Doc()
+
+        #for delayed brodcasting
+        self._batch_state_before : bytes | None = None
+        self._pending_acks: list[tuple[Connection, int]] = []
+        self._batch_contributors: set[Connection] = set()
+        self._flush_handle: asyncio.TimerHandle | None = None
+
+        self._awareness = Awareness(Doc())
+        self._awareness_dirty = False
+        self._awareness_handle: asyncio.TimerHandle | None = None
+
 
     @property
     def current_seq(self) -> int:
@@ -56,7 +67,7 @@ class Room:
         elif frame.type is FrameType.SYNC_STEP2:
             self._handle_sync_step2(sender, frame)
         elif frame.type is FrameType.AWARENESS:
-            self._relay(sender, frame)
+            self._handle_awareness(sender, frame)
         else:
             logger.debug(
                 "room_ignored doc=%s type=%s", self.doc_id, frame.type.name
@@ -85,13 +96,6 @@ class Room:
             sender.close(CloseCode.PROTOCOL_ERROR)
 
 
-    async def _tick_loop(self) -> None:
-        """One timer per room, not one per connection."""
-        while True:
-            await asyncio.sleep(settings.ping_interval_seconds)
-            self._heartbeat()
-
-
     def _handle_update(self , sender : Connection, frame : Frame) -> None:
         if not sender.role.can_write:
             logger.warning(
@@ -101,6 +105,14 @@ class Room:
             sender.close(CloseCode.UNAUTHORIZED)
             return
 
+
+        if self._batch_state_before is None:
+            self._batch_state_before = self._doc.get_state()
+            loop = asyncio.get_running_loop()
+            self._flush_handle = loop.call_later(
+                settings.update_coalesce_ms / 1000, self._flush_updates
+            )
+
         try:
             self._doc.apply_update(frame.payload)
         except ValueError:
@@ -108,23 +120,85 @@ class Room:
             sender.close(CloseCode.PROTOCOL_ERROR)
             return
 
+        self._pending_acks.append((sender, frame.seq))
+        self._batch_contributors.add(sender)
+
+
+    def _flush_updates(self) -> None:
+        """Runs once per coalescing window. Not async — nothing here may await."""
+        state_before = self._batch_state_before
+        acks = self._pending_acks
+        contributors = self._batch_contributors
+
+        self._batch_state_before = None
+        self._pending_acks = []
+        self._batch_contributors = set()
+        self._flush_handle = None
+
+        if not acks:
+            return
+
+        merged = self._doc.get_update(state_before)
         self._seq += 1
-        out = Frame.data(FrameType.UPDATE, frame.payload, seq=self._seq)
-        self._relay(sender, out)
+        out = Frame.data(FrameType.UPDATE, merged, seq=self._seq)
 
-        sender.send(
-            Frame.control(
-                FrameType.ACK,
-                {"client_seq": frame.seq, "server_seq": self._seq},
-            )
-        )
-
-
-    def _relay(self, sender: Connection, frame: Frame) -> None:
+        solo = next(iter(contributors)) if len(contributors) == 1 else None
         for member in self._members:
-            if member is sender:
+            if member is solo:
                 continue
-            member.send(frame)
+            member.send(out)
+
+        for sender, client_seq in acks:
+            sender.send(
+                Frame.control(
+                    FrameType.ACK,
+                    {"client_seq": client_seq, "server_seq": self._seq},
+                )
+            )
+
+
+    def _handle_awareness(self, sender: Connection, frame: Frame) -> None:
+        """Presence only — never sequenced, never applied to the doc."""
+        try:
+            self._awareness.apply_awareness_update(frame.payload, origin=sender.conn_id)
+        except ValueError:
+            logger.warning(
+                "room_bad_awareness doc=%s conn=%s", self.doc_id, sender.conn_id
+            )
+            sender.close(CloseCode.PROTOCOL_ERROR)
+            return
+
+        self._awareness_dirty = True
+        if self._awareness_handle is None:
+            loop = asyncio.get_running_loop()
+            self._awareness_handle = loop.call_later(
+                settings.awareness_coalesce_ms / 1000, self._flush_awareness
+            )
+
+
+    def _flush_awareness(self) -> None:
+        self._awareness_handle = None
+        if not self._awareness_dirty:
+            return
+        self._awareness_dirty = False
+
+        client_ids = [
+            cid for cid in self._awareness.states if cid != self._awareness.client_id
+        ]
+        if not client_ids:
+            return
+
+        merged = self._awareness.encode_awareness_update(client_ids)
+        out = Frame.data(FrameType.AWARENESS, merged)
+        for member in self._members:
+            member.send(out)
+
+
+    async def _tick_loop(self) -> None:
+     """One timer per room, not one per connection."""
+     while True:
+        await asyncio.sleep(settings.ping_interval_seconds)
+        self._heartbeat()
 
 
     def start(self) -> None:
@@ -140,6 +214,13 @@ class Room:
     async def stop(self) -> None:
         if self._task is None:
             return
+
+        if self._flush_handle is not None:
+            self._flush_handle.cancel()
+            self._flush_handle = None
+        if self._awareness_handle is not None:
+            self._awareness_handle.cancel()
+            self._awareness_handle = None
 
         tasks = [t for t in (self._task, self._ticker) if t is not None]
         for task in tasks:
@@ -174,7 +255,22 @@ class Room:
         self._members.add(connection)
         self._empty_since = None
         connection.send(Frame.data(FrameType.SYNC_STEP1, self._doc.get_state()))
-        logger.info("room_join doc=%s conn=%s members=%d",self.doc_id, connection.conn_id, len(self._members))
+
+        known = [
+            cid for cid in self._awareness.states if cid != self._awareness.client_id
+        ]
+        if known:
+            connection.send(
+                Frame.data(
+                    FrameType.AWARENESS, self._awareness.encode_awareness_update(known)
+                )
+            )
+
+        logger.info(
+            "room_join doc=%s conn=%s members=%d",
+            self.doc_id, connection.conn_id, len(self._members),
+        )
+
 
 
     def leave(self, connection : Connection) -> None:
