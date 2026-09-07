@@ -63,6 +63,13 @@ class Settings(BaseSettings):
             return [item.strip().rstrip("/") for item in value.split(",") if item.strip()]
         return value
 
+    @field_validator("database_url")
+    @classmethod
+    def _normalize_postgres_scheme(cls, value: str) -> str:
+        if value.startswith("postgres://"):
+            return "postgresql://" + value[len("postgres://") :]
+        return value
+
     @field_validator("secret_key", "jwt_secret_key")
     @classmethod
     def _reject_weak_secret(cls, value: str) -> str:

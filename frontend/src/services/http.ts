@@ -1,7 +1,10 @@
 import axios, { type AxiosError, type InternalAxiosRequestConfig } from "axios"
 
+
+const API_ORIGIN = import.meta.env.VITE_API_ORIGIN ?? ""
+
 const http = axios.create({
-    baseURL: "/api",
+    baseURL: `${API_ORIGIN}/api`,
     withCredentials : true
 })
 
@@ -27,7 +30,7 @@ let refreshInFlight: Promise<string> | null = null
 function refreshAccessToken() : Promise<string> | null {
 
   if(!refreshInFlight){
-    refreshInFlight = axios.post<{access_token : string}>("/api/auth/refresh", null, { withCredentials: true })
+    refreshInFlight = axios.post<{access_token : string}>(`${API_ORIGIN}/api/auth/refresh`, null, { withCredentials: true })
     .then((res) =>{
       setAccessToken(res.data.access_token)
       return res.data.access_token

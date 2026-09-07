@@ -1,10 +1,10 @@
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from pydoc import text
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from sqlalchemy import text
 
 from app.config import get_settings
 from app.core.logging_config import setup_logging
@@ -19,10 +19,10 @@ from app.routes.auth_routes import router as auth_router
 from app.routes.doc_routes import router as doc_router
 from app.ws.endpoint import router as ws_router
 from app.persistence.op_log import op_log
-from backend.app.core import redis_client
-from backend.app.database.database import SessionLocal
+from app.core import redis_client
+from app.database.database import SessionLocal
 
-setup_logging("DEBUG")
+setup_logging("DEBUG" if settings.is_dev else "INFO")
 logger = logging.getLogger(__name__)
 
 
