@@ -12,6 +12,12 @@ import {
   frameToString,
   type Frame,
 } from "./protocol"
+import {
+  Awareness,
+  encodeAwarenessUpdate,
+  applyAwarenessUpdate,
+  removeAwarenessStates,
+} from "y-protocols/awareness"
 
 export type ConnectionState =
   | "connecting" // socket open, HELLO not yet exchanged
@@ -39,6 +45,7 @@ const REMOTE_ORIGIN = "remote"
 
 export class CollabProvider {
   readonly doc = new Y.Doc()
+  readonly awareness = new Awareness(this.doc)
 
   private ws: WebSocket | null = null
   private state: ConnectionState = "connecting"
@@ -60,6 +67,7 @@ export class CollabProvider {
     this.maxFrameBytes = options.maxFrameBytes ?? 1024 * 1024
     this.onStateChange = options.onStateChange ?? (() => {})
     this.doc.on("update", this.handleLocalUpdate)
+    this.awareness.on("update", this.handleLocalAwarenessUpdate)
   }
 
   get connectionState(): ConnectionState {
@@ -84,6 +92,7 @@ export class CollabProvider {
   }
 
   disconnect(): void {
+    removeAwarenessStates(this.awareness, [this.awareness.clientID], "local")
     this.ws?.close(CloseCode.NORMAL)
     this.ws = null
   }
@@ -112,6 +121,17 @@ export class CollabProvider {
       return
     }
     this.send(dataFrame(FrameType.UPDATE, update, BigInt(this.nextClientSeq++)))
+  }
+
+  private handleLocalAwarenessUpdate = (
+    changes: { added: number[]; updated: number[]; removed: number[] },
+    origin: unknown,
+    ): void => {
+      if (origin === REMOTE_ORIGIN) return
+
+      const changedClients = changes.added.concat(changes.updated, changes.removed)
+      const update = encodeAwarenessUpdate(this.awareness, changedClients)
+      this.send(dataFrame(FrameType.AWARENESS, update))
   }
 
   private flushPendingLocalUpdates(): void {
@@ -161,6 +181,9 @@ export class CollabProvider {
         return
       case FrameType.ERROR:
         console.error("collab: server error", frameJson(frame))
+        return
+      case FrameType.AWARENESS:
+        applyAwarenessUpdate(this.awareness, frame.payload, REMOTE_ORIGIN)
         return
       default:
         console.warn("collab: unhandled frame", frameToString(frame))

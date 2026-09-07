@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react"
 import type * as Y from "yjs"
+import type { Awareness } from "y-protocols/awareness"
 import { EditorState, Compartment } from "@codemirror/state"
 import { EditorView, keymap, lineNumbers, highlightActiveLine } from "@codemirror/view"
 import { defaultKeymap } from "@codemirror/commands"
@@ -7,6 +8,7 @@ import { yCollab } from "y-codemirror.next"
 
 interface CodeEditorProps {
   doc: Y.Doc | null
+  awareness: Awareness
   editable: boolean
 }
 
@@ -17,7 +19,7 @@ const theme = EditorView.theme({
   ".cm-scroller": { overflow: "auto" },
 })
 
-export function CodeEditor({ doc, editable }: CodeEditorProps) {
+export function CodeEditor({ doc, awareness, editable }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
   const editableCompartment = useRef(new Compartment()).current
@@ -39,7 +41,7 @@ export function CodeEditor({ doc, editable }: CodeEditorProps) {
             EditorView.editable.of(editable),
             EditorState.readOnly.of(!editable),
         ]),
-        yCollab(ytext, null),
+        yCollab(ytext, awareness),
         ],
     })
     

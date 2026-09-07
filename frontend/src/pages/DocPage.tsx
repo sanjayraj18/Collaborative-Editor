@@ -32,11 +32,19 @@ export const Component = () => {
     }
   }, [docQuery.isSuccess, docId])
 
-  const { doc: yDoc, connectionState, role } = useProvider(wsUrl)
+  const { doc: yDoc, connectionState, role, provider } = useProvider(wsUrl)
 
   useEffect(() => {
     console.log("connection state:", connectionState)
   }, [connectionState])
+
+  useEffect(() => {
+    if (connectionState !== "live" || !provider) return
+    provider.awareness.setLocalState({
+      name: `User ${Math.floor(Math.random() * 1000)}`,
+      color: `hsl(${Math.floor(Math.random() * 360)}, 70%, 50%)`,
+    })
+  }, [connectionState, provider])
 
   useEffect(() => {
     if (!yDoc) return
@@ -76,8 +84,12 @@ export const Component = () => {
               Couldn't connect: {ticketMutation.error.message}
             </p>
           )}
-          {connectionState === "live" ? (
-              <CodeEditor doc={yDoc} editable={role === "writer"} />
+          {connectionState === "live" && yDoc && provider ? (
+              <CodeEditor
+                doc={yDoc}
+                awareness={provider.awareness}
+                editable={role === "writer"}
+              />
             ) : (
               <p className="text-sm text-muted-foreground">Connecting…</p>
             )}
