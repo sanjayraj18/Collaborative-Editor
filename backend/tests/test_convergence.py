@@ -100,7 +100,7 @@ async def _hammer(room, member: ConvergingMember, seed: int, count: int) -> None
 async def test_two_concurrent_writers_converge_after_500_edits_each():
     """Phase 5's exit criterion: two clients hammer one document concurrently;
     both end up byte-identical to the room and to each other."""
-    async with running_room("doc-convergence") as room:
+    async with running_room("44444444-4444-4444-4444-444444444444") as room:
         alice = ConvergingMember("alice", client_id=1)
         bob = ConvergingMember("bob", client_id=2)
         room.join(alice)
@@ -126,7 +126,7 @@ async def test_convergence_is_independent_of_arrival_order():
     """A third, late-joining peer applies the room's broadcasts in whatever
     order they actually arrived and must still reach the identical state —
     proving the merged updates are commutative, not just individually valid."""
-    async with running_room("doc-convergence-order") as room:
+    async with running_room("55555555-5555-5555-5555-555555555555") as room:
         alice = ConvergingMember("alice", client_id=1)
         room.join(alice)
 
