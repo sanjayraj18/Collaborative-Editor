@@ -6,7 +6,7 @@ from fastapi import FastAPI
 
 from app.config import get_settings
 from app.core.logging_config import setup_logging
-from app.middlewares.cors import CORSMiddleware
+from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.middlewares.exception_handler import register_exception_handlers
 from app.middlewares.logging import LoggingMiddleware
