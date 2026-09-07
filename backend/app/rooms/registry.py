@@ -21,18 +21,6 @@ class RoomRegistry:
         return len(self._rooms)
 
 
-    async def acquire(self, doc_id :str) -> Room:
-        async with self._lock:
-            room = self._rooms.get(doc_id)
-
-            if room is None:
-                room = Room(doc_id)
-                room.start()
-                self._rooms[doc_id] = room
-
-            return room
-
-
     async def acquire(self, doc_id: str) -> Room:
         async with self._lock:
             room = self._rooms.get(doc_id)

@@ -84,9 +84,18 @@ def update(payload: bytes, client_seq: int = 1) -> Frame:
     return Frame.data(FrameType.UPDATE, payload, seq=client_seq)
 
 
+class ImmediateOpLog:
+    """Test double for op_log: durability happens synchronously, in the same
+    call, so a broadcast still follows submit() without a real Postgres or
+    op_log's real batch timer running. Room only ever calls enqueue()."""
+
+    def enqueue(self, doc_id, seq, payload, on_durable) -> None:
+        on_durable()
+
+
 @asynccontextmanager
 async def running_room(doc_id: str = DOC):
-    room = Room(doc_id)
+    room = Room(doc_id, op_log=ImmediateOpLog())
     room.start()
     try:
         yield room
@@ -287,8 +296,8 @@ async def test_registry_returns_one_room_per_document():
 
 async def test_registry_isolates_documents():
     registry = RoomRegistry()
-    a = await registry.acquire("doc-a")
-    b = await registry.acquire("doc-b")
+    a = await registry.acquire("11111111-1111-1111-1111-111111111111")
+    b = await registry.acquire("33333333-3333-3333-3333-333333333333")
 
     assert a is not b
     assert registry.room_count == 2

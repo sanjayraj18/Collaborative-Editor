@@ -7,14 +7,15 @@ from pycrdt import Awareness, Doc
 
 from app.config import settings
 from app.protocol import CloseCode, Frame, FrameType
-from app.persistence.op_log import op_log
+from app.persistence.op_log import OpLogWriter, op_log as default_op_log
 from app.ws.connection import Connection
 
 logger = logging.getLogger(__name__)
 
 class Room:
-    def __init__(self , doc_id : str):
+    def __init__(self , doc_id : str, op_log: OpLogWriter | None = None):
         self.doc_id = doc_id
+        self._op_log = op_log if op_log is not None else default_op_log
         self._members : set[Connection]= set()
         self._inbox: asyncio.Queue[tuple[Connection, Frame]] = asyncio.Queue(
             maxsize=settings.room_inbox_max_frames
@@ -159,7 +160,7 @@ class Room:
         out = Frame.data(FrameType.UPDATE, merged, seq=self._seq)
         self._ring.append(out)
 
-        op_log.enqueue(
+        self._op_log.enqueue(
             doc_id=UUID(self.doc_id),
             seq=seq,
             payload=merged,
