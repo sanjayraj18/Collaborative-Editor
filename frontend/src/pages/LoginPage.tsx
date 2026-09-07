@@ -97,6 +97,10 @@ export const Component = () =>{
         </Card>
         </div>
     )
-    
+
+}
+
+export function HydrateFallback() {
+    return <div className="p-8 text-muted-foreground">Loading…</div>
 }
 
