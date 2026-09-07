@@ -7,7 +7,7 @@ import { authService } from "@/services/AuthService"
 import type { DocumentResponse } from "@/services/types/Document"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { DocumentCard } from "./components/DocumentCard"
+import { DocumentCard } from "../components/DocumentCard"
 
 export const Component = () => {
   const [title, setTitle] = useState("")

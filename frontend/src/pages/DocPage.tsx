@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
 import { useParams } from "react-router-dom"
 
@@ -7,6 +7,11 @@ import { useProvider } from "@/collab/useProvider"
 import { buildWsUrl } from "@/collab/url"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { CodeEditor } from "@/collab/CodeEditor"
+import { ConnectionStatus } from "@/components/ConnectionStatus"
+
+const RECONNECT_BASE_DELAY_MS = 1000
+const RECONNECT_MAX_DELAY_MS = 15000
+const MAX_RECONNECT_ATTEMPTS = 8
 
 export const Component = () => {
   const { docId } = useParams<{ docId: string }>()
@@ -25,11 +30,11 @@ export const Component = () => {
     },
   })
 
-
   useEffect(() => {
     if (docQuery.isSuccess && docId) {
       ticketMutation.mutate()
     }
+    
   }, [docQuery.isSuccess, docId])
 
   const { doc: yDoc, connectionState, role, provider } = useProvider(wsUrl)
@@ -38,6 +43,7 @@ export const Component = () => {
     console.log("connection state:", connectionState)
   }, [connectionState])
 
+ 
   useEffect(() => {
     if (connectionState !== "live" || !provider) return
     provider.awareness.setLocalState({
@@ -50,6 +56,39 @@ export const Component = () => {
     if (!yDoc) return
     ;(window as unknown as { __ydoc: typeof yDoc }).__ydoc = yDoc
   }, [yDoc])
+
+  
+  const reconnectAttemptRef = useRef(0)
+  const [reconnectAttempt, setReconnectAttempt] = useState(0)
+
+  useEffect(() => {
+    if (connectionState === "live") {
+      reconnectAttemptRef.current = 0
+      setReconnectAttempt(0)
+      return
+    }
+
+    if (connectionState !== "offline") return
+    if (reconnectAttemptRef.current >= MAX_RECONNECT_ATTEMPTS) return
+
+    const attempt = reconnectAttemptRef.current
+    const delay = Math.min(RECONNECT_BASE_DELAY_MS * 2 ** attempt, RECONNECT_MAX_DELAY_MS)
+    const jitter = delay * 0.2 * (Math.random() * 2 - 1)
+
+    const timer = setTimeout(() => {
+      reconnectAttemptRef.current += 1
+      setReconnectAttempt(reconnectAttemptRef.current)
+      ticketMutation.mutate()
+    }, delay + jitter)
+
+    return () => clearTimeout(timer)
+  }, [connectionState])
+
+  function handleManualRetry() {
+    reconnectAttemptRef.current = 0
+    setReconnectAttempt(0)
+    ticketMutation.mutate()
+  }
 
   if (docQuery.isPending) {
     return <div className="p-8 text-muted-foreground">Loading…</div>
@@ -74,7 +113,11 @@ export const Component = () => {
             <span className="flex items-center gap-2 text-xs font-normal text-muted-foreground">
               <span>{doc.role}</span>
               {doc.visibility === "link" && <span>· link-shared</span>}
-              <span className="font-mono">· {connectionState}</span>
+              <ConnectionStatus
+                state={connectionState}
+                reconnectAttempt={reconnectAttempt}
+                onRetry={handleManualRetry}
+              />
             </span>
           </CardTitle>
         </CardHeader>
@@ -85,14 +128,14 @@ export const Component = () => {
             </p>
           )}
           {connectionState === "live" && yDoc && provider ? (
-              <CodeEditor
-                doc={yDoc}
-                awareness={provider.awareness}
-                editable={role === "writer"}
-              />
-            ) : (
-              <p className="text-sm text-muted-foreground">Connecting…</p>
-            )}
+            <CodeEditor
+              doc={yDoc}
+              awareness={provider.awareness}
+              editable={role === "writer"}
+            />
+          ) : (
+            <p className="text-sm text-muted-foreground">Connecting…</p>
+          )}
         </CardContent>
       </Card>
     </div>
