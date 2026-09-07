@@ -6,6 +6,7 @@ import { documentService } from "@/services/DocumentService"
 import { useProvider } from "@/collab/useProvider"
 import { buildWsUrl } from "@/collab/url"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { CodeEditor } from "@/collab/CodeEditor"
 
 export const Component = () => {
   const { docId } = useParams<{ docId: string }>()
@@ -76,13 +77,10 @@ export const Component = () => {
             </p>
           )}
           {connectionState === "live" ? (
-            <p className="text-sm text-muted-foreground">
-              Connected as {role}. Editor arrives in Milestone 3 — for now, the
-              console: <code className="font-mono">__ydoc.getText("content")</code>
-            </p>
-          ) : (
-            <p className="text-sm text-muted-foreground">Connecting…</p>
-          )}
+              <CodeEditor doc={yDoc} editable={role === "writer"} />
+            ) : (
+              <p className="text-sm text-muted-foreground">Connecting…</p>
+            )}
         </CardContent>
       </Card>
     </div>
