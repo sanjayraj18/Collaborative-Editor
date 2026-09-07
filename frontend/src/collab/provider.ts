@@ -30,6 +30,7 @@ export interface ProviderOptions {
   url: string
   maxFrameBytes?: number
   onStateChange?: (state: ConnectionState) => void
+  initialLastSeq?: bigint | null
 }
 
 interface ServerHello {
@@ -66,6 +67,7 @@ export class CollabProvider {
     this.options = options
     this.maxFrameBytes = options.maxFrameBytes ?? 1024 * 1024
     this.onStateChange = options.onStateChange ?? (() => {})
+    this.lastAppliedSeq = options.initialLastSeq ?? null
     this.doc.on("update", this.handleLocalUpdate)
     this.awareness.on("update", this.handleLocalAwarenessUpdate)
   }
@@ -76,6 +78,10 @@ export class CollabProvider {
 
   get documentRole(): string | null {
     return this.role
+  }
+  
+  get lastSeq(): bigint | null {
+    return this.lastAppliedSeq
   }
 
   connect(): void {

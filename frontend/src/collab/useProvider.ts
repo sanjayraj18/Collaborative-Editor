@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type * as Y from "yjs"
 
 import { CollabProvider, type ConnectionState } from "./provider"
@@ -10,9 +10,13 @@ interface UseProviderResult {
   provider: CollabProvider | null
 }
 
-export function useProvider(url: string | null): UseProviderResult {
+export function useProvider(url: string | null, docId: string | null): UseProviderResult {
   const [provider, setProvider] = useState<CollabProvider | null>(null)
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting")
+
+  
+  const lastSeqRef = useRef<bigint | null>(null)
+  const lastDocIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (!url) {
@@ -20,17 +24,26 @@ export function useProvider(url: string | null): UseProviderResult {
       return
     }
 
+
+    if (docId !== lastDocIdRef.current) {
+      lastSeqRef.current = null
+      lastDocIdRef.current = docId
+    }
+
     const instance = new CollabProvider({
       url,
+      initialLastSeq: lastSeqRef.current,
       onStateChange: setConnectionState,
     })
     setProvider(instance)
     instance.connect()
 
     return () => {
+      
+      lastSeqRef.current = instance.lastSeq
       instance.disconnect()
     }
-  }, [url])
+  }, [url, docId])
 
   return {
     doc: provider?.doc ?? null,

@@ -37,7 +37,7 @@ export const Component = () => {
     
   }, [docQuery.isSuccess, docId])
 
-  const { doc: yDoc, connectionState, role, provider } = useProvider(wsUrl)
+  const { doc: yDoc, connectionState, role, provider } = useProvider(wsUrl, docId ?? null)
 
   useEffect(() => {
     console.log("connection state:", connectionState)
