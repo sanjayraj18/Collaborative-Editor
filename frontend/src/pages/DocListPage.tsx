@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "react-router-dom"
+import { redirect, useNavigate, type LoaderFunctionArgs } from "react-router-dom"
 
 import { documentService } from "@/services/DocumentService"
 import { authService } from "@/services/AuthService"
@@ -8,9 +8,21 @@ import type { DocumentResponse } from "@/services/types/Document"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DocumentCard } from "../components/DocumentCard"
+import { ShareDialog } from "@/components/ShareDialog"
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  try {
+    await authService.me()
+  } catch {
+    const { pathname, search } = new URL(request.url)
+    throw redirect(`/?next=${encodeURIComponent(pathname + search)}`)
+  }
+  return null
+}
 
 export const Component = () => {
   const [title, setTitle] = useState("")
+  const [sharingDocId, setSharingDocId] = useState<string | null>(null)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
@@ -50,6 +62,8 @@ export const Component = () => {
     )
   }
 
+  const sharingDoc = docsQuery.data.find((d) => d.id === sharingDocId) ?? null
+
   return (
     <div className="mx-auto max-w-2xl p-8">
       <div className="mb-6 flex items-center justify-between">
@@ -80,9 +94,20 @@ export const Component = () => {
               key={doc.id}
               doc={doc}
               onClick={() => navigate(`/docs/${doc.id}`)}
+              onShare={() => setSharingDocId(doc.id)}
             />
           ))}
         </div>
+      )}
+
+      {sharingDoc && (
+        <ShareDialog
+          doc={sharingDoc}
+          open={sharingDocId !== null}
+          onOpenChange={(open) => {
+            if (!open) setSharingDocId(null)
+          }}
+        />
       )}
     </div>
   )

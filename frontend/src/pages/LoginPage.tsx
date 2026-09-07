@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label"
 import { authService, type AccessTokenResponse } from "@/services/AuthService"
 import { useMutation } from "@tanstack/react-query"
 import { useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
 
 
 export const Component = () =>{
@@ -14,11 +14,12 @@ export const Component = () =>{
     const [email, setEmail] = useState("")
     const [password, setPassword] = useState("")
     const navigate = useNavigate()
+    const [searchParams] = useSearchParams()
 
 
     const mutation = useMutation<AccessTokenResponse, Error>({
         mutationFn: () => mode === "signin" ? authService.signin(email, password) : authService.signup(name, email,password),
-        onSuccess: () => navigate("/docs"),
+        onSuccess: () => navigate(searchParams.get("next") || "/docs"),
     })
 
     function handleSubmit(e: React.FormEvent) {

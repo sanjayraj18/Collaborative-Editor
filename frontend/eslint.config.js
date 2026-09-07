@@ -18,5 +18,13 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // React Router v7 route modules export loader/action alongside
+      // Component by convention — this plugin doesn't know that pattern.
+      'react-refresh/only-export-components': [
+        'warn',
+        { allowExportNames: ['loader', 'action'] },
+      ],
+    },
   },
 ])

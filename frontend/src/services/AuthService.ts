@@ -1,4 +1,5 @@
 import http, { setAccessToken } from "./http"
+import type { UserResponse } from "./types/User"
 
 export interface AccessTokenResponse {
   access_token: string
@@ -6,6 +7,11 @@ export interface AccessTokenResponse {
 }
 
 export class AuthService {
+  async me(): Promise<UserResponse> {
+    const { data } = await http.get<UserResponse>("/auth/me")
+    return data
+  }
+
   async signup(name: string, email: string, password: string): Promise<AccessTokenResponse> {
     const { data } = await http.post<AccessTokenResponse>("/auth/signup", { name, email, password })
     setAccessToken(data.access_token)

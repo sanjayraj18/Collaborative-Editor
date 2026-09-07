@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react"
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { useParams } from "react-router-dom"
+import { redirect, useParams, type LoaderFunctionArgs } from "react-router-dom"
 
 import { documentService } from "@/services/DocumentService"
+import { authService } from "@/services/AuthService"
 import { useProvider } from "@/collab/useProvider"
 import { buildWsUrl } from "@/collab/url"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -12,6 +13,16 @@ import { ConnectionStatus } from "@/components/ConnectionStatus"
 const RECONNECT_BASE_DELAY_MS = 1000
 const RECONNECT_MAX_DELAY_MS = 15000
 const MAX_RECONNECT_ATTEMPTS = 8
+
+export async function loader({ request }: LoaderFunctionArgs) {
+  try {
+    await authService.me()
+  } catch {
+    const { pathname, search } = new URL(request.url)
+    throw redirect(`/?next=${encodeURIComponent(pathname + search)}`)
+  }
+  return null
+}
 
 export const Component = () => {
   const { docId } = useParams<{ docId: string }>()

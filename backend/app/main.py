@@ -16,7 +16,7 @@ from app.rooms.registry import registry
 from app.routes.auth_routes import router as auth_router
 from app.routes.doc_routes import router as doc_router
 from app.ws.endpoint import router as ws_router
-from app.persistence import op_log
+from app.persistence.op_log import op_log
 
 setup_logging("DEBUG")
 logger = logging.getLogger(__name__)

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Cookie, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 
-from app.auth.dependencies import CurrentUserId
+from app.auth.dependencies import CurrentUser, CurrentUserId
 from app.auth.ratelimit import clear_login_rate_limit, enforce_login_rate_limit
 from app.config import get_settings
 from app.database.database import get_db
@@ -12,7 +12,7 @@ from app.services.token_service import (
     revoke_user_tokens,
     rotate_refresh_token,
 )
-from app.validation.models import AccessTokenResponse, SigninRequest, SignupRequest
+from app.validation.models import AccessTokenResponse, SigninRequest, SignupRequest, UserResponse
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 settings = get_settings()
@@ -94,6 +94,11 @@ def signout(
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
     response.delete_cookie(REFRESH_COOKIE, path=REFRESH_COOKIE_PATH)
     return response
+
+
+@router.get("/me", response_model=UserResponse)
+def me(user: CurrentUser) -> UserResponse:
+    return UserResponse.model_validate(user)
 
 
 @router.post("/signout-all", status_code=status.HTTP_204_NO_CONTENT)
