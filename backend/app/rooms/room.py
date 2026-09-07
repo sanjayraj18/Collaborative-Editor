@@ -1,11 +1,13 @@
 import asyncio
 import logging
 from collections import deque
+from uuid import UUID
 
 from pycrdt import Awareness, Doc
 
 from app.config import settings
 from app.protocol import CloseCode, Frame, FrameType
+from app.persistence.op_log import op_log
 from app.ws.connection import Connection
 
 logger = logging.getLogger(__name__)
@@ -153,22 +155,38 @@ class Room:
 
         merged = self._doc.get_update(state_before)
         self._seq += 1
+        seq = self._seq
         out = Frame.data(FrameType.UPDATE, merged, seq=self._seq)
         self._ring.append(out)
 
+        op_log.enqueue(
+            doc_id=UUID(self.doc_id),
+            seq=seq,
+            payload=merged,
+            on_durable=lambda: self._finish_broadcast(out, contributors, acks, seq),
+        )
+
+
+    def _finish_broadcast(
+        self,
+        out: Frame,
+        contributors: set[Connection],
+        acks: list[tuple[Connection, int]],
+        seq: int,
+    ) -> None:
+        
         solo = next(iter(contributors)) if len(contributors) == 1 else None
         for member in self._members:
             if member is solo:
                 continue
             member.send(out)
-
+        
         for sender, client_seq in acks:
             sender.send(
                 Frame.control(
                     FrameType.ACK,
-                    {"client_seq": client_seq, "server_seq": self._seq},
+                    {"client_seq": client_seq, "server_seq": self._seq})
                 )
-            )
 
 
     def _handle_awareness(self, sender: Connection, frame: Frame) -> None:
@@ -308,6 +326,16 @@ class Room:
 
         return resumed, self._seq
 
+
+    def recover(self, seq:int, snapshot: bytes | None, ops: list[tuple[int, bytes]]) -> None:
+        
+        if snapshot is not None:
+            self._doc.apply_update(snapshot)
+        for op_seq, payload in ops:
+            self._doc.apply_update(payload)
+            self._ring.append(Frame.data(FrameType.UPDATE, payload, seq=op_seq))
+
+        self._seq = seq
 
 
     def leave(self, connection : Connection) -> None:

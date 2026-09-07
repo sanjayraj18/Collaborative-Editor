@@ -2,7 +2,9 @@ import asyncio
 import logging
 
 from app.config import settings
+from uuid import UUID
 from app.rooms.room import Room
+from app.persistence import recovery
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +33,23 @@ class RoomRegistry:
             return room
 
 
+    async def acquire(self, doc_id: str) -> Room:
+        async with self._lock:
+            room = self._rooms.get(doc_id)
+            if room is None:
+                room = Room(doc_id)
+                state = await recovery.load(UUID(doc_id))
+                room.recover(state.seq, state.snapshot, state.ops)
+                if state.ops or state.snapshot:
+                    logger.info(
+                        "room_recovered doc=%s seq=%d ops_replayed=%d",
+                        doc_id, state.seq, len(state.ops),
+                    )
+                room.start()
+                self._rooms[doc_id] = room
+            return room
+
+        
     async def release(self, room: Room) -> None:
         return
 

@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from sqlalchemy import CheckConstraint, Column, DateTime, ForeignKey, Integer, String, text
+from sqlalchemy import BigInteger, CheckConstraint, Column, DateTime, ForeignKey, Integer, LargeBinary, String, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 
@@ -91,3 +91,30 @@ class DocumentMember(Base):
 
     document = relationship("Document", back_populates="members")
     user = relationship("User")
+
+
+class DocumentOp(Base):
+
+    __tablename__ = "doc_ops"
+
+    doc_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    seq = Column(BigInteger, primary_key=True)
+    payload = Column(LargeBinary, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+
+class DocumentSnapshot(Base):
+
+    __tablename__ = "doc_snapshots"
+
+    doc_id = Column(
+            UUID(as_uuid=True),
+            ForeignKey("documents.id", ondelete="CASCADE"),
+            primary_key=True,
+    )
+    seq = Column(BigInteger, primary_key=True)
+    state = Column(LargeBinary, nullable=False)
+    created_at = Column(DateTime(timezone=True), nullable=False, default=_utcnow)

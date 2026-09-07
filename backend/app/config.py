@@ -48,6 +48,11 @@ class Settings(BaseSettings):
 
     resume_ring_size: int = 1024
 
+    op_log_batch_ms: int = 10
+    snapshot_every_n_ops: int = 500
+
+    compaction_interval_seconds: int = 60
+
     database_url: str
     redis_url: str
 

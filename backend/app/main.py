@@ -16,6 +16,7 @@ from app.rooms.registry import registry
 from app.routes.auth_routes import router as auth_router
 from app.routes.doc_routes import router as doc_router
 from app.ws.endpoint import router as ws_router
+from app.persistence import op_log
 
 setup_logging("DEBUG")
 logger = logging.getLogger(__name__)
@@ -30,12 +31,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         settings.allowed_origins,
     )
 
+    op_log.start()
     registry.start_reaper()
     permissions.start()
     logger.info("startup env=%s origins=%s", settings.app_env, settings.allowed_origins)
     yield
     await permissions.stop()
     await registry.drain_all()
+    await op_log.stop()
     logger.info("shutdown complete")
 
 
