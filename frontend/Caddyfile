@@ -1,4 +1,6 @@
-:{$PORT} {
+# Default keeps the container bootable when the platform doesn't inject PORT —
+# with a bare {$PORT}, Caddy fails to parse the address and never starts.
+:{$PORT:8080} {
       root * /srv
       try_files {path} /index.html
       file_server

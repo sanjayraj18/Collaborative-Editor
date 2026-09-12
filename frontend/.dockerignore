@@ -1,0 +1,12 @@
+# node_modules holds host-native binaries (esbuild, rollup). Copying them over
+# the Alpine install that `npm ci` just made breaks the build.
+node_modules
+dist
+*.tsbuildinfo
+
+.git
+.env
+.env.*
+!.env.example
+
+.DS_Store
