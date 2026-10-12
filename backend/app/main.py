@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.middlewares.exception_handler import register_exception_handlers
 from app.middlewares.logging import LoggingMiddleware
+from app.middlewares.origin_audit import OriginAuditMiddleware
 from app.middlewares.request_id import RequestIDMiddleware
 from app.rooms import permissions
 from app.rooms.registry import registry
@@ -38,7 +39,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     op_log.start()
     registry.start_reaper()
     permissions.start()
-    logger.info("startup env=%s origins=%s", settings.app_env, settings.allowed_origins)
     yield
     await permissions.stop()
     await registry.drain_all()
@@ -56,6 +56,7 @@ app.add_middleware(
 )
 app.add_middleware(LoggingMiddleware)
 app.add_middleware(RequestIDMiddleware)
+app.add_middleware(OriginAuditMiddleware, allowed_origins=settings.allowed_origins)
 
 
 register_exception_handlers(app)

@@ -78,6 +78,16 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
+    def _require_origins_outside_dev(self) -> "Settings":
+        
+        if not self.is_dev and not self.allowed_origins:
+            raise ValueError(
+                "ALLOWED_ORIGINS must be set when APP_ENV is not 'dev'; "
+                "set it to the frontend's origin, e.g. https://your-app.up.railway.app"
+            )
+        return self
+
+    @model_validator(mode="after")
     def _default_jwt_secret(self) -> "Settings":
         if not self.jwt_secret_key:
             self.jwt_secret_key = self.secret_key
